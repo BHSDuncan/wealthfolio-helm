@@ -264,6 +264,53 @@ def hash_password(password: str, state: Path, *, allow_system_bootstrap=False):
     return encoded
 
 
+def resolve_kubernetes_target(args):
+    """Resolve local client settings without creating state or contacting the API."""
+    if args.context is not None and not args.context.strip():
+        raise InstallError("The selected Kubernetes context must not be empty.")
+    if args.kubeconfig is not None:
+        if not args.kubeconfig or not Path(args.kubeconfig).expanduser().is_file():
+            raise InstallError("The selected kubeconfig file is missing or unreadable; no other target was selected.")
+    default_config = Path.home() / ".kube/config"
+    ordinary_config = (args.kubeconfig is not None or bool(os.environ.get("KUBECONFIG"))
+                       or default_config.exists() or default_config.is_symlink())
+    if not args.local_k3s and not args.context and not ordinary_config:
+        if shutil.which("k3s") and K3S_KUBECONFIG.exists():
+            args.local_k3s = True
+    if args.local_k3s:
+        if os.geteuid() != 0:
+            raise InstallError("Run local K3s installation with sudo so its kubeconfig can be used.")
+        binary = shutil.which("k3s")
+        config = Path(args.kubeconfig or K3S_KUBECONFIG).expanduser().absolute()
+        if not binary or not config.is_file() or not os.access(config, os.R_OK):
+            raise InstallError("This machine is not a configured K3s server.")
+        context = args.context or "default"
+        kubectl = [binary, "kubectl", "--kubeconfig", str(config), "--context", context]
+        helm_target = ["--kubeconfig", str(config), "--kube-context", context]
+    else:
+        binary = shutil.which("kubectl") or str(ROOT / ".tools/bin/kubectl")
+        if not Path(binary).is_file():
+            raise InstallError("kubectl and a working kubeconfig are required, or run on a configured K3s server.")
+        kubectl = [binary]
+        helm_target = []
+        config_path = args.kubeconfig
+        if config_path is None and not os.environ.get("KUBECONFIG") and ordinary_config:
+            config_path = str(default_config)
+        if config_path:
+            config = str(Path(config_path).expanduser().absolute())
+            kubectl += ["--kubeconfig", config]
+            helm_target += ["--kubeconfig", config]
+        context = args.context
+        if not context:
+            result = run(kubectl + ["config", "current-context"], check=False)
+            context = result.stdout.removesuffix("\r\n") if result.stdout.endswith("\r\n") else result.stdout.removesuffix("\n")
+            if result.returncode or not context.strip() or "\n" in context or "\r" in context:
+                raise InstallError("No usable current Kubernetes context was found. Configure kubectl or select --context NAME/--kubeconfig FILE; no other target was selected.")
+        kubectl += ["--context", context]
+        helm_target += ["--kube-context", context]
+    return kubectl, helm_target, context
+
+
 class Installer:
     def __init__(self, args):
         self.args = args
@@ -276,48 +323,7 @@ class Installer:
         if os.geteuid() != 0 and self.owner.pw_uid != os.getuid():
             raise InstallError("Only root can select a different recovery-file owner.")
         self.uid, self.gid = self.owner.pw_uid, self.owner.pw_gid
-        if args.context is not None and not args.context.strip():
-            raise InstallError("The selected Kubernetes context must not be empty.")
-        if args.kubeconfig is not None:
-            if not args.kubeconfig or not Path(args.kubeconfig).expanduser().is_file():
-                raise InstallError("The selected kubeconfig file is missing or unreadable; no other target was selected.")
-        default_config = Path.home() / ".kube/config"
-        ordinary_config = (args.kubeconfig is not None or bool(os.environ.get("KUBECONFIG"))
-                           or default_config.exists() or default_config.is_symlink())
-        if not args.local_k3s and not args.context and not ordinary_config:
-            if shutil.which("k3s") and K3S_KUBECONFIG.exists():
-                args.local_k3s = True
-        if args.local_k3s:
-            if os.geteuid() != 0:
-                raise InstallError("Run local K3s installation with sudo so its kubeconfig can be used.")
-            binary = shutil.which("k3s")
-            config = Path(args.kubeconfig or K3S_KUBECONFIG).expanduser().absolute()
-            if not binary or not config.is_file() or not os.access(config, os.R_OK):
-                raise InstallError("This machine is not a configured K3s server.")
-            self.context = args.context or "default"
-            self.kubectl = [binary, "kubectl", "--kubeconfig", str(config), "--context", self.context]
-            self.helm_target = ["--kubeconfig", str(config), "--kube-context", self.context]
-        else:
-            binary = shutil.which("kubectl") or str(ROOT / ".tools/bin/kubectl")
-            if not Path(binary).is_file():
-                raise InstallError("kubectl and a working kubeconfig are required, or run on a configured K3s server.")
-            self.kubectl = [binary]
-            self.helm_target = []
-            config_path = args.kubeconfig
-            if config_path is None and not os.environ.get("KUBECONFIG") and ordinary_config:
-                config_path = str(default_config)
-            if config_path:
-                config = str(Path(config_path).expanduser().absolute())
-                self.kubectl += ["--kubeconfig", config]
-                self.helm_target += ["--kubeconfig", config]
-            self.context = args.context
-            if not self.context:
-                result = run(self.kubectl + ["config", "current-context"], check=False)
-                self.context = result.stdout.removesuffix("\r\n") if result.stdout.endswith("\r\n") else result.stdout.removesuffix("\n")
-                if result.returncode or not self.context.strip() or "\n" in self.context or "\r" in self.context:
-                    raise InstallError("No usable current Kubernetes context was found. Configure kubectl or select --context NAME/--kubeconfig FILE; no other target was selected.")
-            self.kubectl += ["--context", self.context]
-            self.helm_target += ["--kube-context", self.context]
+        self.kubectl, self.helm_target, self.context = resolve_kubernetes_target(args)
         self.namespace = args.namespace
         self.release = args.release
         self.secret = args.existing_secret or self.release + "-auth"

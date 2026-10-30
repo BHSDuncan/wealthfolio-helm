@@ -1,6 +1,6 @@
 # HTTPS and certificate setup
 
-The installer asks how HTTPS should obtain its certificate. HTTPS encryption and browser trust are separate: a browser must trust the issuing CA and the certificate must cover your hostname. Application-install examples use the installer’s default local kubeconfig context. Use `sudo` for the standard on-host K3s fallback, or retain explicit target options from [installation](install.md); SSH execution is optional.
+The installer asks how HTTPS should obtain its certificate. HTTPS encryption and browser trust are separate: a browser must trust the issuing CA and the certificate must cover your hostname. The examples use your current kubeconfig context by default. Use `sudo` for the standard on-host K3s fallback, or retain explicit target overrides from [installation](install.md); SSH execution is optional.
 
 | Choice | Works without an existing application certificate? | Trust and renewal |
 |---|---|---|
@@ -45,14 +45,18 @@ An existing organization CA can instead be used through a ready cert-manager CA 
 
 With a compatible cert-manager operator and ready issuer already configured, select `--tls-mode cert-manager --issuer NAME --issuer-kind Issuer` or `ClusterIssuer`. A namespaced Issuer must be in the application namespace. The installer creates a namespaced Certificate using the selected hostname and a mode-specific TLS Secret, waits for readiness, and leaves the working application route unchanged if issuance fails. Existing unowned/conflicting Certificate or Secret resources are not overwritten.
 
-The separate cert-manager bootstrap requires an explicit target. To install the operator and a public HTTP01 issuer directly on a K3s server:
+To install the operator and a public HTTP01 issuer using the current cluster:
 
 ```bash
-sudo ./scripts/setup-cert-manager.sh --local-k3s --namespace wealthfolio \
+./scripts/setup-cert-manager.sh --namespace wealthfolio \
   --issuer wealthfolio-http01 --email you@example.com --install-controller
 ```
 
-For another cluster, replace `sudo` and `--local-k3s` with your normal execution user and `--context NAME` (plus `--kubeconfig PATH` if needed). This is a separate opt-in global operation: `--install-controller` installs the pinned official cert-manager chart and its CRDs/RBAC. It refuses an existing operator rather than adopting or upgrading it. The locked bootstrap version is 1.21.3, supporting Kubernetes 1.33–1.36; another cluster version requires an operator installed through an appropriate upstream procedure. Without that flag the helper only creates a namespaced issuer using the existing operator. `--dry-run` with an explicit context prints the HTTP01 plan without contacting a cluster.
+The helper uses the same default target selection as the application installer; `--context NAME`, `--kubeconfig PATH` and `--local-k3s` are optional overrides. The HTTP01 solver needs a suitable default IngressClass or an explicit `--ingress-class NAME`; detected/explicit local K3s defaults to Traefik. Without a suitable default or explicit class, multiple controllers may serve the challenge; see [HTTP01 configuration](https://cert-manager.io/docs/configuration/acme/http01/).
+
+`--install-controller` is a separate opt-in global operation that installs the pinned official cert-manager chart and its CRDs/RBAC. It refuses an existing operator rather than adopting or upgrading it. The locked bootstrap version is 1.21.3, supporting Kubernetes 1.33–1.36; another cluster version requires an operator installed through an appropriate upstream procedure. Without that flag the helper only creates a namespaced issuer using the existing operator.
+
+`--dry-run` prints the HTTP01 plan without requiring a kubeconfig, client binaries or cluster access. Target detection and an implicit ingress-class default are deferred until execution; provide `--ingress-class NAME` to preview that exact solver class.
 
 HTTP01 requires a real domain you control, DNS pointing to the ingress, and public port 80 reachability. The helper does not configure DNS, firewalls or a domain registrar. The production ACME service has issuance limits; review the prerequisites before requesting certificates. Then select the ready issuer in the application installer, or use `--configure-access` for an existing managed installation.
 

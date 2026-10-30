@@ -253,7 +253,10 @@ def setup_script(tmp_path, *, crd=True):
 import json,os,pathlib,sys
 args=sys.argv[1:]
 with open(os.environ['WF_SETUP_TEST_LOG'],'a') as log:log.write(json.dumps(args)+'\\n')
-if 'version' in args:print(json.dumps({'serverVersion':{'gitVersion':'v1.35.8'}}))
+if 'current-context' in args:
+    if os.environ.get('WF_SETUP_TEST_CONTEXT_ERROR')=='yes':raise SystemExit('synthetic unreadable configuration')
+    print(os.environ.get('WF_SETUP_TEST_CONTEXT','current-test'))
+elif 'version' in args:print(json.dumps({'serverVersion':{'gitVersion':os.environ.get('WF_SETUP_TEST_VERSION','v1.35.8')}}))
 elif 'get' in args:
     kind=args[args.index('get')+1]
     if kind=='customresourcedefinition' and os.environ['WF_SETUP_TEST_CRD']=='yes':print(json.dumps({'metadata':{'uid':'existing-crd'}}))
@@ -265,16 +268,20 @@ elif 'create' in args:
 elif 'wait' not in args:raise SystemExit('Unexpected test operation')
 ''')
     kubectl.chmod(0o700)
+    config = tmp_path / "test.kubeconfig"
+    config.write_text("synthetic client settings")
     environment = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'],
+                       KUBECONFIG=str(config),
                        WF_SETUP_TEST_LOG=str(log), WF_SETUP_TEST_CRD="yes" if crd else "no",
                        WF_SETUP_TEST_CREATED=str(tmp_path / "created.jsonl"))
     return environment, log, tmp_path / "created.jsonl"
 
 
-def call_setup(environment, *args):
+def call_setup(environment, *args, explicit_target=True):
     import subprocess
     script = Path(__file__).parents[1] / "scripts/setup-cert-manager.sh"
-    return subprocess.run(["bash", str(script), "--context", "explicit-test", "--namespace", "wealthfolio", "--issuer", "chosen-issuer", *args], env=environment, capture_output=True, text=True)
+    target = ["--context", "explicit-test"] if explicit_target else []
+    return subprocess.run(["bash", str(script), *target, "--namespace", "wealthfolio", "--issuer", "chosen-issuer", *args], env=environment, capture_output=True, text=True)
 
 
 def test_bootstrap_dry_run_has_no_api_contact_and_declares_global_scope(tmp_path):
@@ -284,8 +291,67 @@ def test_bootstrap_dry_run_has_no_api_contact_and_declares_global_scope(tmp_path
     plan = json.loads(result.stdout)
     assert plan["globalControllerInstall"] is True
     assert plan["issuer"]["kind"] == "Issuer"
-    assert plan["issuer"]["spec"]["acme"]["solvers"] == [{"http01": {"ingress": {"ingressClassName": "traefik"}}}]
+    assert plan["issuer"]["spec"]["acme"]["solvers"] == [{"http01": {"ingress": {}}}]
     assert not log.exists() and not created.exists()
+
+
+def test_cert_manager_defaults_to_current_context_without_forcing_traefik(tmp_path):
+    environment, log, created = setup_script(tmp_path)
+    environment['WF_SETUP_TEST_VERSION'] = 'v1.35.8+k3s1'
+    result = call_setup(environment, "--email", "operator@example.test", explicit_target=False)
+    assert result.returncode == 0, result.stderr
+    assert "context current-test" in result.stdout
+    commands = [json.loads(line) for line in log.read_text().splitlines()]
+    assert commands[0] == ['config', 'current-context']
+    for command in commands[1:]:
+        assert command[command.index('--context') + 1] == 'current-test'
+    document = json.loads(created.read_text().strip())
+    assert document['spec']['acme']['solvers'] == [{'http01': {'ingress': {}}}]
+
+
+def test_cert_manager_kubeconfig_alone_and_class_override_are_honored(tmp_path):
+    environment, log, created = setup_script(tmp_path)
+    config = tmp_path / 'custom cluster.yaml'
+    config.write_text('synthetic selected config')
+    result = call_setup(environment, '--kubeconfig', str(config), '--ingress-class', 'nginx',
+                        '--email', 'operator@example.test', explicit_target=False)
+    assert result.returncode == 0, result.stderr
+    commands = [json.loads(line) for line in log.read_text().splitlines()]
+    for command in commands:
+        assert command[command.index('--kubeconfig') + 1] == str(config)
+    document = json.loads(created.read_text().strip())
+    assert document['spec']['acme']['solvers'] == [{'http01': {'ingress': {'ingressClassName': 'nginx'}}}]
+
+
+def test_cert_manager_broken_config_stops_before_any_api_operation(tmp_path):
+    environment, log, created = setup_script(tmp_path)
+    environment['WF_SETUP_TEST_CONTEXT_ERROR'] = 'yes'
+    result = call_setup(environment, '--email', 'operator@example.test', explicit_target=False)
+    assert result.returncode != 0 and 'No usable current Kubernetes context' in result.stderr
+    assert [json.loads(line) for line in log.read_text().splitlines()] == [['config', 'current-context']]
+    assert not created.exists()
+
+
+@pytest.mark.parametrize('target,expected_ingress', [([], {}), (['--context', 'preview'], {}),
+                                                    (['--local-k3s'], {'ingressClassName': 'traefik'}),
+                                                    (['--ingress-class', 'nginx'], {'ingressClassName': 'nginx'})])
+def test_cert_manager_dry_run_needs_no_client_binaries_or_configuration(tmp_path, target, expected_ingress):
+    import shutil, subprocess, sys
+    binary = tmp_path / 'bin'
+    binary.mkdir()
+    (binary / 'python3').symlink_to(sys.executable)
+    (binary / 'dirname').symlink_to(shutil.which('dirname'))
+    environment = dict(os.environ, PATH=str(binary), KUBECONFIG=str(tmp_path / 'missing-config'))
+    script = Path(__file__).parents[1] / 'scripts/setup-cert-manager.sh'
+    result = subprocess.run([shutil.which('bash'), str(script), *target, '--namespace', 'wealthfolio', '--issuer', 'chosen-issuer',
+                             '--email', 'operator@example.test', '--dry-run'],
+                            env=environment, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    plan = json.loads(result.stdout)
+    assert 'deferred until execution' in plan['targetResolution']
+    assert 'HTTP01' in plan['prerequisites']
+    ingress = plan['issuer']['spec']['acme']['solvers'][0]['http01']['ingress']
+    assert ingress == expected_ingress
 
 
 def test_bootstrap_accepts_explicit_local_k3s_context_and_kubeconfig_without_api_contact(tmp_path):
@@ -384,6 +450,7 @@ def test_operator_bootstrap_lists_all_statuses_with_both_helm_majors(tmp_path, m
         f"spec=importlib.util.spec_from_file_location('real_installer',{str(root / 'scripts/installer.py')!r})\n"
         "core=importlib.util.module_from_spec(spec);spec.loader.exec_module(core)\n"
         "InstallError=core.InstallError\n"
+        "resolve_kubernetes_target=core.resolve_kubernetes_target\n"
         "helm_list_status_flags=core.helm_list_status_flags\n"
         f"def secure_directory(*args):\n p=pathlib.Path({str(tmp_path / 'private-tools')!r});p.mkdir(exist_ok=True,mode=0o700);return p\n"
     )
