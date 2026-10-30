@@ -1,0 +1,125 @@
+{{- include "wealthfolio.validate" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "wealthfolio.fullname" . }}
+  labels:
+    {{- include "wealthfolio.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "wealthfolio.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "wealthfolio.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: wealthfolio
+          image: {{ include "wealthfolio.image" .Values.image | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8088
+              protocol: TCP
+          env:
+            - name: WF_LISTEN_ADDR
+              value: {{ printf "%s:8088" (ternary "[::]" "0.0.0.0" (eq (default "0.0.0.0" .Values.app.listenAddress) "::")) | quote }}
+            - name: WF_DATA_DIR
+              value: "/data"
+            - name: WF_DB_PATH
+              value: "/data/wealthfolio.db"
+            - name: WF_AUTH_REQUIRED
+              value: "true"
+            - name: WF_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.existingSecret | quote }}
+                  key: {{ .Values.auth.secretKeys.secretKey | quote }}
+                  optional: false
+            - name: WF_AUTH_PASSWORD_HASH
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.existingSecret | quote }}
+                  key: {{ .Values.auth.secretKeys.passwordHash | quote }}
+                  optional: false
+            - name: WF_AUTH_TOKEN_TTL_MINUTES
+              value: {{ .Values.auth.tokenTtlMinutes | quote }}
+            - name: WF_COOKIE_SECURE
+              value: {{ .Values.auth.cookieSecure | quote }}
+            - name: WF_CORS_ALLOW_ORIGINS
+              value: {{ join "," .Values.app.corsAllowOrigins | quote }}
+            - name: WF_REQUEST_TIMEOUT_MS
+              value: {{ .Values.app.requestTimeoutMs | quote }}
+            - name: WF_LOG_FORMAT
+              value: {{ .Values.app.logFormat | quote }}
+            - name: WF_DB_REQUIRE_ENCRYPTION
+              value: {{ .Values.encryption.required | quote }}
+            - name: WF_MCP_ENABLED
+              value: {{ .Values.mcp.enabled | quote }}
+            - name: WF_MCP_AUDIT_ENABLED
+              value: {{ .Values.mcp.auditEnabled | quote }}
+            {{- if .Values.mcp.enabled }}
+            - name: WF_MCP_ALLOWED_HOSTS
+              value: {{ join "," .Values.mcp.allowedHosts | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- range $name, $config := .Values.probes }}
+          {{- if $config.enabled }}
+          {{ $name }}Probe:
+            httpGet:
+              path: {{ if eq $name "readiness" }}/api/v1/readyz{{ else }}/api/v1/healthz{{ end }}
+              port: http
+              scheme: HTTP
+            {{- omit $config "enabled" | toYaml | nindent 12 }}
+          {{- end }}
+          {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "wealthfolio.claimName" . }}
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.tmp.sizeLimit | quote }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

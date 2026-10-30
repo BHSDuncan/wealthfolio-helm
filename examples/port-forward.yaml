@@ -1,0 +1,3 @@
+# Use an existing namespace Secret and a localhost-only port-forward.
+auth:
+  existingSecret: wealthfolio-auth

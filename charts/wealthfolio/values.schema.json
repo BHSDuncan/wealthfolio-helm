@@ -1,0 +1,1929 @@
+{
+  "type": "object",
+  "description": "Wealthfolio community chart values. Credentials are external references only.",
+  "properties": {
+    "nameOverride": {
+      "type": "string",
+      "description": "Optional stable short chart name.",
+      "maxLength": 53,
+      "pattern": "^$|^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+    },
+    "fullnameOverride": {
+      "type": "string",
+      "description": "Explicit stable resource name; changes can select a new PVC.",
+      "maxLength": 53,
+      "pattern": "^$|^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+    },
+    "replicaCount": {
+      "type": "integer",
+      "description": "Exactly one writer is supported.",
+      "enum": [
+        1
+      ]
+    },
+    "image": {
+      "type": "object",
+      "description": "Official upstream image by default, pinned to an immutable multiarchitecture digest.",
+      "properties": {
+        "repository": {
+          "type": "string",
+          "description": "Container image repository; defaults to the official upstream image.",
+          "minLength": 1,
+          "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[1-9][0-9]*)?/[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*$",
+          "default": "ghcr.io/wealthfolio/wealthfolio"
+        },
+        "tag": {
+          "type": "string",
+          "description": "Explicit application version matching the selected digest.",
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$",
+          "default": "3.11.0"
+        },
+        "digest": {
+          "type": "string",
+          "description": "Immutable image digest. Supply a matching digest when changing the image.",
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "default": "sha256:3e996e9b3fbf9c945eca89e7b89eb03e0966beb1c51b977ccccb811f76ae2994"
+        },
+        "pullPolicy": {
+          "type": "string",
+          "description": "Kubernetes image pull policy.",
+          "enum": [
+            "IfNotPresent",
+            "Always",
+            "Never"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "tag",
+        "digest",
+        "pullPolicy"
+      ]
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "description": "Existing namespace image-pull Secrets.",
+      "items": {
+        "type": "object",
+        "description": "Secret reference.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Existing Secret name.",
+            "minLength": 1,
+            "maxLength": 253,
+            "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ]
+      }
+    },
+    "auth": {
+      "type": "object",
+      "description": "Existing authentication Secret and session policy.",
+      "properties": {
+        "existingSecret": {
+          "type": "string",
+          "description": "Required existing namespaced Secret; chart never reads or creates it.",
+          "minLength": 1,
+          "maxLength": 253,
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
+        },
+        "secretKeys": {
+          "type": "object",
+          "description": "Required keys in existing Secret.",
+          "properties": {
+            "secretKey": {
+              "type": "string",
+              "description": "32-byte base64 master-key entry.",
+              "minLength": 1,
+              "maxLength": 253,
+              "pattern": "^[A-Za-z0-9._-]+$"
+            },
+            "passwordHash": {
+              "type": "string",
+              "description": "Literal Argon2id PHC hash entry.",
+              "minLength": 1,
+              "maxLength": 253,
+              "pattern": "^[A-Za-z0-9._-]+$"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "secretKey",
+            "passwordHash"
+          ]
+        },
+        "tokenTtlMinutes": {
+          "type": "integer",
+          "description": "Session lifetime; supported practical bound is one year.",
+          "minimum": 1,
+          "maximum": 525600
+        },
+        "cookieSecure": {
+          "type": "string",
+          "description": "Secure cookie policy; HTTPS ingress should use true.",
+          "enum": [
+            "auto",
+            "true",
+            "false"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "existingSecret",
+        "secretKeys",
+        "tokenTtlMinutes",
+        "cookieSecure"
+      ]
+    },
+    "app": {
+      "type": "object",
+      "description": "Verified server runtime settings.",
+      "properties": {
+        "listenAddress": {
+          "type": "string",
+          "description": "Pod listener wildcard: IPv4 by default, or IPv6. Container port remains 8088.",
+          "enum": [
+            "0.0.0.0",
+            "::"
+          ]
+        },
+        "corsAllowOrigins": {
+          "type": "array",
+          "description": "Exact browser origins without wildcard, credentials or path.",
+          "items": {
+            "type": "string",
+            "description": "HTTP or HTTPS browser origin.",
+            "pattern": "^https?://([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*|\\[[0-9A-Fa-f:]+\\])(:[1-9][0-9]{0,4})?$"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "requestTimeoutMs": {
+          "type": "integer",
+          "description": "API request timeout in milliseconds.",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "logFormat": {
+          "type": "string",
+          "description": "Server log format.",
+          "enum": [
+            "text",
+            "json"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "corsAllowOrigins",
+        "requestTimeoutMs",
+        "logFormat"
+      ]
+    },
+    "encryption": {
+      "type": "object",
+      "description": "Database encryption policy; no automatic conversion.",
+      "properties": {
+        "required": {
+          "type": "boolean",
+          "description": "Require encrypted databases; false creates plaintext databases."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "required"
+      ]
+    },
+    "persistence": {
+      "type": "object",
+      "description": "Whole /data storage; existingClaim ignores creation settings.",
+      "properties": {
+        "existingClaim": {
+          "type": "string",
+          "description": "Existing namespace claim, or empty to create a retained claim.",
+          "pattern": "^$|^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$",
+          "maxLength": 253
+        },
+        "size": {
+          "type": "string",
+          "description": "Positive new-claim capacity; shrinking is unsupported.",
+          "pattern": "^([1-9][0-9]*(\\.[0-9]+)?|0\\.[0-9]*[1-9][0-9]*)([eE][+-]?[0-9]+|[EPTGMK]i|[EPTGMkmun])?$"
+        },
+        "storageClass": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "description": "Null omits class, empty explicitly selects no class, named uses existing class.",
+          "maxLength": 253,
+          "pattern": "^$|^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
+        },
+        "accessModes": {
+          "type": "array",
+          "description": "Exactly one filesystem access mode; RWOP requires CSI support.",
+          "items": {
+            "type": "string",
+            "description": "Supported claim access mode.",
+            "enum": [
+              "ReadWriteOnce",
+              "ReadWriteOncePod"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "annotations": {
+          "type": "object",
+          "description": "Extra PVC annotations; Helm ownership/keep keys are reserved.",
+          "propertyNames": {
+            "maxLength": 253,
+            "pattern": "^([a-z0-9]([a-z0-9.-]*[a-z0-9])?/)?[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "description": "Nonsecret annotation value."
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "existingClaim",
+        "size",
+        "accessModes",
+        "annotations"
+      ]
+    },
+    "service": {
+      "type": "object",
+      "description": "Service; public exposure requires explicit choice.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Kubernetes Service type.",
+          "enum": [
+            "ClusterIP",
+            "NodePort",
+            "LoadBalancer"
+          ]
+        },
+        "port": {
+          "type": "integer",
+          "description": "Service port; container target stays named http/8088.",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "nodePort": {
+          "type": [
+            "null",
+            "integer"
+          ],
+          "description": "Only NodePort Services; must be inside the target cluster configured node-port range.",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "annotations": {
+          "type": "object",
+          "description": "Nonsecret Service annotations.",
+          "propertyNames": {
+            "maxLength": 253,
+            "pattern": "^([a-z0-9]([a-z0-9.-]*[a-z0-9])?/)?[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "description": "Nonsecret annotation value."
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "port",
+        "annotations"
+      ]
+    },
+    "ingress": {
+      "type": "object",
+      "description": "Optional standard root-path Ingress; no controller is installed.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Create an Ingress."
+        },
+        "className": {
+          "type": "string",
+          "description": "Existing controller class or empty for its default.",
+          "maxLength": 253,
+          "pattern": "^$|^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
+        },
+        "annotations": {
+          "type": "object",
+          "description": "Existing-controller annotations; no template evaluation.",
+          "propertyNames": {
+            "maxLength": 253,
+            "pattern": "^([a-z0-9]([a-z0-9.-]*[a-z0-9])?/)?[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "description": "Nonsecret annotation value."
+          }
+        },
+        "hosts": {
+          "type": "array",
+          "description": "DNS hosts required when enabled.",
+          "items": {
+            "type": "string",
+            "description": "Ingress DNS host, no wildcard or URL.",
+            "maxLength": 253,
+            "pattern": "^(localhost|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*)$"
+          },
+          "uniqueItems": true
+        },
+        "tls": {
+          "type": "array",
+          "description": "Existing TLS Secret references.",
+          "items": {
+            "type": "object",
+            "description": "TLS mapping.",
+            "properties": {
+              "secretName": {
+                "type": "string",
+                "description": "Optional namespace TLS Secret; omit to use the ingress controller certificate.",
+                "minLength": 1,
+                "maxLength": 253,
+                "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
+              },
+              "hosts": {
+                "type": "array",
+                "description": "Hosts must also occur in ingress.hosts.",
+                "items": {
+                  "type": "string",
+                  "description": "TLS DNS host.",
+                  "maxLength": 253,
+                  "pattern": "^(localhost|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*)$"
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "hosts"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "className",
+        "annotations",
+        "hosts",
+        "tls"
+      ]
+    },
+    "mcp": {
+      "type": "object",
+      "description": "Optional in-process MCP endpoint; PATs stay outside Helm.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable /mcp with upstream PAT authentication."
+        },
+        "auditEnabled": {
+          "type": "boolean",
+          "description": "Enable upstream MCP audit logging."
+        },
+        "allowedHosts": {
+          "type": "array",
+          "description": "Explicit Host-header allowlist required when enabled; no wildcard.",
+          "items": {
+            "type": "string",
+            "description": "Hostname, IPv4 or bracketed IPv6, with optional port; without port permits any port.",
+            "pattern": "^(localhost|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*|\\[[0-9A-Fa-f:]+\\])(:[1-9][0-9]{0,4})?$"
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "auditEnabled",
+        "allowedHosts"
+      ]
+    },
+    "resources": {
+      "type": "object",
+      "description": "Initial recommendations; adjust using measured workload.",
+      "properties": {
+        "requests": {
+          "type": "object",
+          "description": "Requested resources.",
+          "properties": {
+            "cpu": {
+              "type": "string",
+              "description": "Positive CPU quantity.",
+              "pattern": "^([1-9][0-9]*(\\.[0-9]+)?|0\\.[0-9]*[1-9][0-9]*)([eE][+-]?[0-9]+|[EPTGMK]i|[EPTGMkmun])?$"
+            },
+            "memory": {
+              "type": "string",
+              "description": "Positive memory quantity.",
+              "pattern": "^([1-9][0-9]*(\\.[0-9]+)?|0\\.[0-9]*[1-9][0-9]*)([eE][+-]?[0-9]+|[EPTGMK]i|[EPTGMkmun])?$"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "cpu",
+            "memory"
+          ]
+        },
+        "limits": {
+          "type": "object",
+          "description": "Resource caps; no CPU cap by default.",
+          "properties": {
+            "memory": {
+              "type": "string",
+              "description": "Positive memory limit; includes memory-backed tmp.",
+              "pattern": "^([1-9][0-9]*(\\.[0-9]+)?|0\\.[0-9]*[1-9][0-9]*)([eE][+-]?[0-9]+|[EPTGMK]i|[EPTGMkmun])?$"
+            },
+            "cpu": {
+              "type": "string",
+              "description": "Optional positive CPU limit.",
+              "pattern": "^([1-9][0-9]*(\\.[0-9]+)?|0\\.[0-9]*[1-9][0-9]*)([eE][+-]?[0-9]+|[EPTGMK]i|[EPTGMkmun])?$"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "memory"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "requests",
+        "limits"
+      ]
+    },
+    "podSecurityContext": {
+      "type": "object",
+      "description": "Supported numeric runtime identity and pod security.",
+      "properties": {
+        "runAsNonRoot": {
+          "type": "boolean",
+          "description": "Required non-root runtime.",
+          "enum": [
+            true
+          ]
+        },
+        "runAsUser": {
+          "type": "integer",
+          "description": "Supported runtime UID.",
+          "enum": [
+            1000
+          ]
+        },
+        "runAsGroup": {
+          "type": "integer",
+          "description": "Supported runtime GID.",
+          "enum": [
+            1000
+          ]
+        },
+        "fsGroup": {
+          "type": "integer",
+          "description": "Supported data filesystem group.",
+          "enum": [
+            1000
+          ]
+        },
+        "fsGroupChangePolicy": {
+          "type": "string",
+          "description": "Driver-sensitive ownership handling.",
+          "enum": [
+            "OnRootMismatch",
+            "Always"
+          ]
+        },
+        "seccompProfile": {
+          "type": "object",
+          "description": "Supported seccomp profile.",
+          "properties": {
+            "type": {
+              "type": "string",
+              "description": "Runtime default seccomp.",
+              "enum": [
+                "RuntimeDefault"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "runAsNonRoot",
+        "runAsUser",
+        "runAsGroup",
+        "fsGroup",
+        "fsGroupChangePolicy",
+        "seccompProfile"
+      ]
+    },
+    "securityContext": {
+      "type": "object",
+      "description": "Container security invariants.",
+      "properties": {
+        "allowPrivilegeEscalation": {
+          "type": "boolean",
+          "description": "Privilege escalation forbidden.",
+          "enum": [
+            false
+          ]
+        },
+        "readOnlyRootFilesystem": {
+          "type": "boolean",
+          "description": "Root filesystem must be read-only.",
+          "enum": [
+            true
+          ]
+        },
+        "capabilities": {
+          "type": "object",
+          "description": "Capability policy.",
+          "properties": {
+            "drop": {
+              "type": "array",
+              "description": "Drop every capability.",
+              "items": {
+                "type": "string",
+                "description": "ALL capabilities.",
+                "enum": [
+                  "ALL"
+                ]
+              },
+              "minItems": 1,
+              "maxItems": 1
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "drop"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "allowPrivilegeEscalation",
+        "readOnlyRootFilesystem",
+        "capabilities"
+      ]
+    },
+    "tmp": {
+      "type": "object",
+      "description": "Writable memory-backed scratch space.",
+      "properties": {
+        "sizeLimit": {
+          "type": "string",
+          "description": "Positive temporary-storage bound.",
+          "pattern": "^([1-9][0-9]*(\\.[0-9]+)?|0\\.[0-9]*[1-9][0-9]*)([eE][+-]?[0-9]+|[EPTGMK]i|[EPTGMkmun])?$"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "sizeLimit"
+      ]
+    },
+    "probes": {
+      "type": "object",
+      "description": "Unauthenticated shallow health checks; not integrity tests.",
+      "properties": {
+        "startup": {
+          "type": "object",
+          "description": "Startup healthz; default budget approximately five minutes.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable this HTTP probe."
+            },
+            "periodSeconds": {
+              "type": "integer",
+              "description": "Seconds between checks.",
+              "minimum": 1
+            },
+            "timeoutSeconds": {
+              "type": "integer",
+              "description": "HTTP timeout in seconds.",
+              "minimum": 1
+            },
+            "failureThreshold": {
+              "type": "integer",
+              "description": "Consecutive failures before action.",
+              "minimum": 1
+            },
+            "initialDelaySeconds": {
+              "type": "integer",
+              "description": "Delay before first startup check.",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "enabled",
+            "periodSeconds",
+            "timeoutSeconds",
+            "failureThreshold",
+            "initialDelaySeconds"
+          ]
+        },
+        "readiness": {
+          "type": "object",
+          "description": "Readiness readyz.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable this HTTP probe."
+            },
+            "periodSeconds": {
+              "type": "integer",
+              "description": "Seconds between checks.",
+              "minimum": 1
+            },
+            "timeoutSeconds": {
+              "type": "integer",
+              "description": "HTTP timeout in seconds.",
+              "minimum": 1
+            },
+            "failureThreshold": {
+              "type": "integer",
+              "description": "Consecutive failures before action.",
+              "minimum": 1
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "enabled",
+            "periodSeconds",
+            "timeoutSeconds",
+            "failureThreshold"
+          ]
+        },
+        "liveness": {
+          "type": "object",
+          "description": "Liveness healthz.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable this HTTP probe."
+            },
+            "periodSeconds": {
+              "type": "integer",
+              "description": "Seconds between checks.",
+              "minimum": 1
+            },
+            "timeoutSeconds": {
+              "type": "integer",
+              "description": "HTTP timeout in seconds.",
+              "minimum": 1
+            },
+            "failureThreshold": {
+              "type": "integer",
+              "description": "Consecutive failures before action.",
+              "minimum": 1
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "enabled",
+            "periodSeconds",
+            "timeoutSeconds",
+            "failureThreshold"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "startup",
+        "readiness",
+        "liveness"
+      ]
+    },
+    "terminationGracePeriodSeconds": {
+      "type": "integer",
+      "description": "Shutdown grace; upstream does not promise request draining.",
+      "minimum": 1
+    },
+    "commonLabels": {
+      "type": "object",
+      "description": "Additional labels; generated Kubernetes/Helm labels are reserved.",
+      "propertyNames": {
+        "maxLength": 253,
+        "pattern": "^([a-z0-9]([a-z0-9.-]*[a-z0-9])?/)?[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "description": "Kubernetes label value.",
+        "maxLength": 63,
+        "pattern": "^([A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?)?$"
+      }
+    },
+    "podLabels": {
+      "type": "object",
+      "description": "Additional pod labels; selectors and generated labels are reserved.",
+      "propertyNames": {
+        "maxLength": 253,
+        "pattern": "^([a-z0-9]([a-z0-9.-]*[a-z0-9])?/)?[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "description": "Kubernetes label value.",
+        "maxLength": 63,
+        "pattern": "^([A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?)?$"
+      }
+    },
+    "podAnnotations": {
+      "type": "object",
+      "description": "Additional nonsecret pod annotations; ownership keys reserved.",
+      "propertyNames": {
+        "maxLength": 253,
+        "pattern": "^([a-z0-9]([a-z0-9.-]*[a-z0-9])?/)?[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "description": "Nonsecret annotation value."
+      }
+    },
+    "nodeSelector": {
+      "type": "object",
+      "description": "Standard exact node placement labels.",
+      "propertyNames": {
+        "maxLength": 253,
+        "pattern": "^([a-z0-9]([a-z0-9.-]*[a-z0-9])?/)?[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "description": "Kubernetes label value.",
+        "maxLength": 63,
+        "pattern": "^([A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?)?$"
+      }
+    },
+    "tolerations": {
+      "type": "array",
+      "description": "Standard Kubernetes placement tolerations.",
+      "items": {
+        "type": "object",
+        "description": "Toleration.",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "Taint key."
+          },
+          "operator": {
+            "type": "string",
+            "description": "Toleration operator.",
+            "enum": [
+              "Exists",
+              "Equal"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "description": "Taint value."
+          },
+          "effect": {
+            "type": "string",
+            "description": "Taint effect.",
+            "enum": [
+              "NoSchedule",
+              "PreferNoSchedule",
+              "NoExecute"
+            ]
+          },
+          "tolerationSeconds": {
+            "type": "integer",
+            "description": "NoExecute duration.",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": []
+      }
+    },
+    "affinity": {
+      "type": "object",
+      "description": "Standard Kubernetes node/pod affinity.",
+      "properties": {
+        "nodeAffinity": {
+          "type": "object",
+          "description": "Node affinity.",
+          "properties": {
+            "requiredDuringSchedulingIgnoredDuringExecution": {
+              "type": "object",
+              "description": "Required node selector.",
+              "properties": {
+                "nodeSelectorTerms": {
+                  "type": "array",
+                  "description": "Node selector terms.",
+                  "items": {
+                    "type": "object",
+                    "description": "Node selector term.",
+                    "properties": {
+                      "matchExpressions": {
+                        "type": "array",
+                        "description": "Node label requirements.",
+                        "items": {
+                          "type": "object",
+                          "description": "Node selector expression.",
+                          "properties": {
+                            "key": {
+                              "type": "string",
+                              "description": "Node label or field.",
+                              "minLength": 1
+                            },
+                            "operator": {
+                              "type": "string",
+                              "description": "Node selector operator.",
+                              "enum": [
+                                "In",
+                                "NotIn",
+                                "Exists",
+                                "DoesNotExist",
+                                "Gt",
+                                "Lt"
+                              ]
+                            },
+                            "values": {
+                              "type": "array",
+                              "description": "Expression values.",
+                              "items": {
+                                "type": "string",
+                                "description": "Value."
+                              }
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "key",
+                            "operator"
+                          ]
+                        }
+                      },
+                      "matchFields": {
+                        "type": "array",
+                        "description": "Node field requirements.",
+                        "items": {
+                          "type": "object",
+                          "description": "Node selector expression.",
+                          "properties": {
+                            "key": {
+                              "type": "string",
+                              "description": "Node label or field.",
+                              "minLength": 1
+                            },
+                            "operator": {
+                              "type": "string",
+                              "description": "Node selector operator.",
+                              "enum": [
+                                "In",
+                                "NotIn",
+                                "Exists",
+                                "DoesNotExist",
+                                "Gt",
+                                "Lt"
+                              ]
+                            },
+                            "values": {
+                              "type": "array",
+                              "description": "Expression values.",
+                              "items": {
+                                "type": "string",
+                                "description": "Value."
+                              }
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "key",
+                            "operator"
+                          ]
+                        }
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": []
+                  },
+                  "minItems": 1
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "nodeSelectorTerms"
+              ]
+            },
+            "preferredDuringSchedulingIgnoredDuringExecution": {
+              "type": "array",
+              "description": "Weighted node preference.",
+              "items": {
+                "type": "object",
+                "description": "Weighted node term.",
+                "properties": {
+                  "weight": {
+                    "type": "integer",
+                    "description": "Weight.",
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "preference": {
+                    "type": "object",
+                    "description": "Node selector term.",
+                    "properties": {
+                      "matchExpressions": {
+                        "type": "array",
+                        "description": "Node label requirements.",
+                        "items": {
+                          "type": "object",
+                          "description": "Node selector expression.",
+                          "properties": {
+                            "key": {
+                              "type": "string",
+                              "description": "Node label or field.",
+                              "minLength": 1
+                            },
+                            "operator": {
+                              "type": "string",
+                              "description": "Node selector operator.",
+                              "enum": [
+                                "In",
+                                "NotIn",
+                                "Exists",
+                                "DoesNotExist",
+                                "Gt",
+                                "Lt"
+                              ]
+                            },
+                            "values": {
+                              "type": "array",
+                              "description": "Expression values.",
+                              "items": {
+                                "type": "string",
+                                "description": "Value."
+                              }
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "key",
+                            "operator"
+                          ]
+                        }
+                      },
+                      "matchFields": {
+                        "type": "array",
+                        "description": "Node field requirements.",
+                        "items": {
+                          "type": "object",
+                          "description": "Node selector expression.",
+                          "properties": {
+                            "key": {
+                              "type": "string",
+                              "description": "Node label or field.",
+                              "minLength": 1
+                            },
+                            "operator": {
+                              "type": "string",
+                              "description": "Node selector operator.",
+                              "enum": [
+                                "In",
+                                "NotIn",
+                                "Exists",
+                                "DoesNotExist",
+                                "Gt",
+                                "Lt"
+                              ]
+                            },
+                            "values": {
+                              "type": "array",
+                              "description": "Expression values.",
+                              "items": {
+                                "type": "string",
+                                "description": "Value."
+                              }
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "key",
+                            "operator"
+                          ]
+                        }
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": []
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "weight",
+                  "preference"
+                ]
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": []
+        },
+        "podAffinity": {
+          "type": "object",
+          "description": "Pod affinity selection.",
+          "properties": {
+            "requiredDuringSchedulingIgnoredDuringExecution": {
+              "type": "array",
+              "description": "Required pod placement terms.",
+              "items": {
+                "type": "object",
+                "description": "Pod affinity term.",
+                "properties": {
+                  "labelSelector": {
+                    "type": "object",
+                    "description": "Kubernetes label selector.",
+                    "properties": {
+                      "matchLabels": {
+                        "type": "object",
+                        "description": "Exact label matches.",
+                        "propertyNames": {
+                          "maxLength": 253,
+                          "pattern": "^([a-z0-9]([a-z0-9.-]*[a-z0-9])?/)?[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?$"
+                        },
+                        "additionalProperties": {
+                          "type": "string",
+                          "description": "Kubernetes label value.",
+                          "maxLength": 63,
+                          "pattern": "^([A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?)?$"
+                        }
+                      },
+                      "matchExpressions": {
+                        "type": "array",
+                        "description": "Label requirements.",
+                        "items": {
+                          "type": "object",
+                          "description": "Label selector expression.",
+                          "properties": {
+                            "key": {
+                              "type": "string",
+                              "description": "Label key.",
+                              "minLength": 1
+                            },
+                            "operator": {
+                              "type": "string",
+                              "description": "Selector operator.",
+                              "enum": [
+                                "In",
+                                "NotIn",
+                                "Exists",
+                                "DoesNotExist"
+                              ]
+                            },
+                            "values": {
+                              "type": "array",
+                              "description": "Selector values.",
+                              "items": {
+                                "type": "string",
+                                "description": "Label value."
+                              }
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "key",
+                            "operator"
+                          ]
+                        }
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": []
+                  },
+                  "namespaceSelector": {
+                    "type": "object",
+                    "description": "Kubernetes label selector.",
+                    "properties": {
+                      "matchLabels": {
+                        "type": "object",
+                        "description": "Exact label matches.",
+                        "propertyNames": {
+                          "maxLength": 253,
+                          "pattern": "^([a-z0-9]([a-z0-9.-]*[a-z0-9])?/)?[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?$"
+                        },
+                        "additionalProperties": {
+                          "type": "string",
+                          "description": "Kubernetes label value.",
+                          "maxLength": 63,
+                          "pattern": "^([A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?)?$"
+                        }
+                      },
+                      "matchExpressions": {
+                        "type": "array",
+                        "description": "Label requirements.",
+                        "items": {
+                          "type": "object",
+                          "description": "Label selector expression.",
+                          "properties": {
+                            "key": {
+                              "type": "string",
+                              "description": "Label key.",
+                              "minLength": 1
+                            },
+                            "operator": {
+                              "type": "string",
+                              "description": "Selector operator.",
+                              "enum": [
+                                "In",
+                                "NotIn",
+                                "Exists",
+                                "DoesNotExist"
+                              ]
+                            },
+                            "values": {
+                              "type": "array",
+                              "description": "Selector values.",
+                              "items": {
+                                "type": "string",
+                                "description": "Label value."
+                              }
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "key",
+                            "operator"
+                          ]
+                        }
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": []
+                  },
+                  "namespaces": {
+                    "type": "array",
+                    "description": "Namespace names.",
+                    "items": {
+                      "type": "string",
+                      "description": "Namespace name.",
+                      "minLength": 1,
+                      "maxLength": 253,
+                      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
+                    }
+                  },
+                  "topologyKey": {
+                    "type": "string",
+                    "description": "Topology label key.",
+                    "minLength": 1
+                  },
+                  "matchLabelKeys": {
+                    "type": "array",
+                    "description": "Pod label keys.",
+                    "items": {
+                      "type": "string",
+                      "description": "Key."
+                    }
+                  },
+                  "mismatchLabelKeys": {
+                    "type": "array",
+                    "description": "Pod label exclusion keys.",
+                    "items": {
+                      "type": "string",
+                      "description": "Key."
+                    }
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "topologyKey"
+                ]
+              }
+            },
+            "preferredDuringSchedulingIgnoredDuringExecution": {
+              "type": "array",
+              "description": "Weighted pod placement terms.",
+              "items": {
+                "type": "object",
+                "description": "Weighted pod placement.",
+                "properties": {
+                  "weight": {
+                    "type": "integer",
+                    "description": "Weight.",
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "podAffinityTerm": {
+                    "type": "object",
+                    "description": "Pod affinity term.",
+                    "properties": {
+                      "labelSelector": {
+                        "type": "object",
+                        "description": "Kubernetes label selector.",
+                        "properties": {
+                          "matchLabels": {
+                            "type": "object",
+                            "description": "Exact label matches.",
+                            "propertyNames": {
+                              "maxLength": 253,
+                              "pattern": "^([a-z0-9]([a-z0-9.-]*[a-z0-9])?/)?[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?$"
+                            },
+                            "additionalProperties": {
+                              "type": "string",
+                              "description": "Kubernetes label value.",
+                              "maxLength": 63,
+                              "pattern": "^([A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?)?$"
+                            }
+                          },
+                          "matchExpressions": {
+                            "type": "array",
+                            "description": "Label requirements.",
+                            "items": {
+                              "type": "object",
+                              "description": "Label selector expression.",
+                              "properties": {
+                                "key": {
+                                  "type": "string",
+                                  "description": "Label key.",
+                                  "minLength": 1
+                                },
+                                "operator": {
+                                  "type": "string",
+                                  "description": "Selector operator.",
+                                  "enum": [
+                                    "In",
+                                    "NotIn",
+                                    "Exists",
+                                    "DoesNotExist"
+                                  ]
+                                },
+                                "values": {
+                                  "type": "array",
+                                  "description": "Selector values.",
+                                  "items": {
+                                    "type": "string",
+                                    "description": "Label value."
+                                  }
+                                }
+                              },
+                              "additionalProperties": false,
+                              "required": [
+                                "key",
+                                "operator"
+                              ]
+                            }
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": []
+                      },
+                      "namespaceSelector": {
+                        "type": "object",
+                        "description": "Kubernetes label selector.",
+                        "properties": {
+                          "matchLabels": {
+                            "type": "object",
+                            "description": "Exact label matches.",
+                            "propertyNames": {
+                              "maxLength": 253,
+                              "pattern": "^([a-z0-9]([a-z0-9.-]*[a-z0-9])?/)?[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?$"
+                            },
+                            "additionalProperties": {
+                              "type": "string",
+                              "description": "Kubernetes label value.",
+                              "maxLength": 63,
+                              "pattern": "^([A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?)?$"
+                            }
+                          },
+                          "matchExpressions": {
+                            "type": "array",
+                            "description": "Label requirements.",
+                            "items": {
+                              "type": "object",
+                              "description": "Label selector expression.",
+                              "properties": {
+                                "key": {
+                                  "type": "string",
+                                  "description": "Label key.",
+                                  "minLength": 1
+                                },
+                                "operator": {
+                                  "type": "string",
+                                  "description": "Selector operator.",
+                                  "enum": [
+                                    "In",
+                                    "NotIn",
+                                    "Exists",
+                                    "DoesNotExist"
+                                  ]
+                                },
+                                "values": {
+                                  "type": "array",
+                                  "description": "Selector values.",
+                                  "items": {
+                                    "type": "string",
+                                    "description": "Label value."
+                                  }
+                                }
+                              },
+                              "additionalProperties": false,
+                              "required": [
+                                "key",
+                                "operator"
+                              ]
+                            }
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": []
+                      },
+                      "namespaces": {
+                        "type": "array",
+                        "description": "Namespace names.",
+                        "items": {
+                          "type": "string",
+                          "description": "Namespace name.",
+                          "minLength": 1,
+                          "maxLength": 253,
+                          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
+                        }
+                      },
+                      "topologyKey": {
+                        "type": "string",
+                        "description": "Topology label key.",
+                        "minLength": 1
+                      },
+                      "matchLabelKeys": {
+                        "type": "array",
+                        "description": "Pod label keys.",
+                        "items": {
+                          "type": "string",
+                          "description": "Key."
+                        }
+                      },
+                      "mismatchLabelKeys": {
+                        "type": "array",
+                        "description": "Pod label exclusion keys.",
+                        "items": {
+                          "type": "string",
+                          "description": "Key."
+                        }
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "topologyKey"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "weight",
+                  "podAffinityTerm"
+                ]
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": []
+        },
+        "podAntiAffinity": {
+          "type": "object",
+          "description": "Pod affinity selection.",
+          "properties": {
+            "requiredDuringSchedulingIgnoredDuringExecution": {
+              "type": "array",
+              "description": "Required pod placement terms.",
+              "items": {
+                "type": "object",
+                "description": "Pod affinity term.",
+                "properties": {
+                  "labelSelector": {
+                    "type": "object",
+                    "description": "Kubernetes label selector.",
+                    "properties": {
+                      "matchLabels": {
+                        "type": "object",
+                        "description": "Exact label matches.",
+                        "propertyNames": {
+                          "maxLength": 253,
+                          "pattern": "^([a-z0-9]([a-z0-9.-]*[a-z0-9])?/)?[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?$"
+                        },
+                        "additionalProperties": {
+                          "type": "string",
+                          "description": "Kubernetes label value.",
+                          "maxLength": 63,
+                          "pattern": "^([A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?)?$"
+                        }
+                      },
+                      "matchExpressions": {
+                        "type": "array",
+                        "description": "Label requirements.",
+                        "items": {
+                          "type": "object",
+                          "description": "Label selector expression.",
+                          "properties": {
+                            "key": {
+                              "type": "string",
+                              "description": "Label key.",
+                              "minLength": 1
+                            },
+                            "operator": {
+                              "type": "string",
+                              "description": "Selector operator.",
+                              "enum": [
+                                "In",
+                                "NotIn",
+                                "Exists",
+                                "DoesNotExist"
+                              ]
+                            },
+                            "values": {
+                              "type": "array",
+                              "description": "Selector values.",
+                              "items": {
+                                "type": "string",
+                                "description": "Label value."
+                              }
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "key",
+                            "operator"
+                          ]
+                        }
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": []
+                  },
+                  "namespaceSelector": {
+                    "type": "object",
+                    "description": "Kubernetes label selector.",
+                    "properties": {
+                      "matchLabels": {
+                        "type": "object",
+                        "description": "Exact label matches.",
+                        "propertyNames": {
+                          "maxLength": 253,
+                          "pattern": "^([a-z0-9]([a-z0-9.-]*[a-z0-9])?/)?[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?$"
+                        },
+                        "additionalProperties": {
+                          "type": "string",
+                          "description": "Kubernetes label value.",
+                          "maxLength": 63,
+                          "pattern": "^([A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?)?$"
+                        }
+                      },
+                      "matchExpressions": {
+                        "type": "array",
+                        "description": "Label requirements.",
+                        "items": {
+                          "type": "object",
+                          "description": "Label selector expression.",
+                          "properties": {
+                            "key": {
+                              "type": "string",
+                              "description": "Label key.",
+                              "minLength": 1
+                            },
+                            "operator": {
+                              "type": "string",
+                              "description": "Selector operator.",
+                              "enum": [
+                                "In",
+                                "NotIn",
+                                "Exists",
+                                "DoesNotExist"
+                              ]
+                            },
+                            "values": {
+                              "type": "array",
+                              "description": "Selector values.",
+                              "items": {
+                                "type": "string",
+                                "description": "Label value."
+                              }
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "key",
+                            "operator"
+                          ]
+                        }
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": []
+                  },
+                  "namespaces": {
+                    "type": "array",
+                    "description": "Namespace names.",
+                    "items": {
+                      "type": "string",
+                      "description": "Namespace name.",
+                      "minLength": 1,
+                      "maxLength": 253,
+                      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
+                    }
+                  },
+                  "topologyKey": {
+                    "type": "string",
+                    "description": "Topology label key.",
+                    "minLength": 1
+                  },
+                  "matchLabelKeys": {
+                    "type": "array",
+                    "description": "Pod label keys.",
+                    "items": {
+                      "type": "string",
+                      "description": "Key."
+                    }
+                  },
+                  "mismatchLabelKeys": {
+                    "type": "array",
+                    "description": "Pod label exclusion keys.",
+                    "items": {
+                      "type": "string",
+                      "description": "Key."
+                    }
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "topologyKey"
+                ]
+              }
+            },
+            "preferredDuringSchedulingIgnoredDuringExecution": {
+              "type": "array",
+              "description": "Weighted pod placement terms.",
+              "items": {
+                "type": "object",
+                "description": "Weighted pod placement.",
+                "properties": {
+                  "weight": {
+                    "type": "integer",
+                    "description": "Weight.",
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "podAffinityTerm": {
+                    "type": "object",
+                    "description": "Pod affinity term.",
+                    "properties": {
+                      "labelSelector": {
+                        "type": "object",
+                        "description": "Kubernetes label selector.",
+                        "properties": {
+                          "matchLabels": {
+                            "type": "object",
+                            "description": "Exact label matches.",
+                            "propertyNames": {
+                              "maxLength": 253,
+                              "pattern": "^([a-z0-9]([a-z0-9.-]*[a-z0-9])?/)?[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?$"
+                            },
+                            "additionalProperties": {
+                              "type": "string",
+                              "description": "Kubernetes label value.",
+                              "maxLength": 63,
+                              "pattern": "^([A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?)?$"
+                            }
+                          },
+                          "matchExpressions": {
+                            "type": "array",
+                            "description": "Label requirements.",
+                            "items": {
+                              "type": "object",
+                              "description": "Label selector expression.",
+                              "properties": {
+                                "key": {
+                                  "type": "string",
+                                  "description": "Label key.",
+                                  "minLength": 1
+                                },
+                                "operator": {
+                                  "type": "string",
+                                  "description": "Selector operator.",
+                                  "enum": [
+                                    "In",
+                                    "NotIn",
+                                    "Exists",
+                                    "DoesNotExist"
+                                  ]
+                                },
+                                "values": {
+                                  "type": "array",
+                                  "description": "Selector values.",
+                                  "items": {
+                                    "type": "string",
+                                    "description": "Label value."
+                                  }
+                                }
+                              },
+                              "additionalProperties": false,
+                              "required": [
+                                "key",
+                                "operator"
+                              ]
+                            }
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": []
+                      },
+                      "namespaceSelector": {
+                        "type": "object",
+                        "description": "Kubernetes label selector.",
+                        "properties": {
+                          "matchLabels": {
+                            "type": "object",
+                            "description": "Exact label matches.",
+                            "propertyNames": {
+                              "maxLength": 253,
+                              "pattern": "^([a-z0-9]([a-z0-9.-]*[a-z0-9])?/)?[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?$"
+                            },
+                            "additionalProperties": {
+                              "type": "string",
+                              "description": "Kubernetes label value.",
+                              "maxLength": 63,
+                              "pattern": "^([A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?)?$"
+                            }
+                          },
+                          "matchExpressions": {
+                            "type": "array",
+                            "description": "Label requirements.",
+                            "items": {
+                              "type": "object",
+                              "description": "Label selector expression.",
+                              "properties": {
+                                "key": {
+                                  "type": "string",
+                                  "description": "Label key.",
+                                  "minLength": 1
+                                },
+                                "operator": {
+                                  "type": "string",
+                                  "description": "Selector operator.",
+                                  "enum": [
+                                    "In",
+                                    "NotIn",
+                                    "Exists",
+                                    "DoesNotExist"
+                                  ]
+                                },
+                                "values": {
+                                  "type": "array",
+                                  "description": "Selector values.",
+                                  "items": {
+                                    "type": "string",
+                                    "description": "Label value."
+                                  }
+                                }
+                              },
+                              "additionalProperties": false,
+                              "required": [
+                                "key",
+                                "operator"
+                              ]
+                            }
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": []
+                      },
+                      "namespaces": {
+                        "type": "array",
+                        "description": "Namespace names.",
+                        "items": {
+                          "type": "string",
+                          "description": "Namespace name.",
+                          "minLength": 1,
+                          "maxLength": 253,
+                          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
+                        }
+                      },
+                      "topologyKey": {
+                        "type": "string",
+                        "description": "Topology label key.",
+                        "minLength": 1
+                      },
+                      "matchLabelKeys": {
+                        "type": "array",
+                        "description": "Pod label keys.",
+                        "items": {
+                          "type": "string",
+                          "description": "Key."
+                        }
+                      },
+                      "mismatchLabelKeys": {
+                        "type": "array",
+                        "description": "Pod label exclusion keys.",
+                        "items": {
+                          "type": "string",
+                          "description": "Key."
+                        }
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "topologyKey"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "weight",
+                  "podAffinityTerm"
+                ]
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": []
+        }
+      },
+      "additionalProperties": false,
+      "required": []
+    },
+    "extraEnv": {
+      "type": "array",
+      "description": "Only RUST_LOG literal or METAL_PRICE_API_KEY Secret reference.",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Literal logging filter.",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Logging variable.",
+                "enum": [
+                  "RUST_LOG"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "description": "Nonempty log filter.",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "value"
+            ]
+          },
+          {
+            "type": "object",
+            "description": "External provider key reference.",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Provider key variable.",
+                "enum": [
+                  "METAL_PRICE_API_KEY"
+                ]
+              },
+              "valueFrom": {
+                "type": "object",
+                "description": "Existing Secret source.",
+                "properties": {
+                  "secretKeyRef": {
+                    "type": "object",
+                    "description": "Nonoptional Secret key.",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "description": "Existing namespace Secret.",
+                        "minLength": 1,
+                        "maxLength": 253,
+                        "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
+                      },
+                      "key": {
+                        "type": "string",
+                        "description": "Secret key name.",
+                        "minLength": 1,
+                        "pattern": "^[A-Za-z0-9._-]+$"
+                      },
+                      "optional": {
+                        "type": "boolean",
+                        "description": "Key must exist.",
+                        "enum": [
+                          false
+                        ]
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "name",
+                      "key",
+                      "optional"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "secretKeyRef"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "valueFrom"
+            ]
+          }
+        ]
+      }
+    },
+    "tests": {
+      "type": "object",
+      "description": "Unauthenticated Helm health test; no credential/PVC mount.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Render the Helm test hook."
+        },
+        "image": {
+          "type": "object",
+          "description": "Pinned curl health utility image.",
+          "properties": {
+            "repository": {
+              "type": "string",
+              "description": "Registry/repository without tag or digest.",
+              "minLength": 1,
+              "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[1-9][0-9]*)?/[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*$"
+            },
+            "tag": {
+              "type": "string",
+              "description": "Explicit reviewed tag; changing it requires clearing or reviewing digest.",
+              "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"
+            },
+            "digest": {
+              "type": "string",
+              "description": "Reviewed SHA256 digest, or empty for tag-only selection.",
+              "pattern": "^(sha256:[a-f0-9]{64})?$"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "repository",
+            "tag",
+            "digest"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "image"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "nameOverride",
+    "fullnameOverride",
+    "replicaCount",
+    "image",
+    "imagePullSecrets",
+    "auth",
+    "app",
+    "encryption",
+    "persistence",
+    "service",
+    "ingress",
+    "mcp",
+    "resources",
+    "podSecurityContext",
+    "securityContext",
+    "tmp",
+    "probes",
+    "terminationGracePeriodSeconds",
+    "commonLabels",
+    "podLabels",
+    "podAnnotations",
+    "nodeSelector",
+    "tolerations",
+    "affinity",
+    "extraEnv",
+    "tests"
+  ],
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Wealthfolio chart values"
+}

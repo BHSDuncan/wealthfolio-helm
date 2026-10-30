@@ -1,0 +1,5 @@
+# Only for fresh empty storage, or after a verified stopped per-profile conversion.
+auth:
+  existingSecret: wealthfolio-auth
+encryption:
+  required: true

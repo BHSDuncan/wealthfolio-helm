@@ -1,0 +1,15 @@
+# Use the existing controller's HTTPS certificate; verify its hostname and trust.
+auth:
+  existingSecret: wealthfolio-auth
+  cookieSecure: "true"
+app:
+  corsAllowOrigins:
+    - https://wealthfolio.example.test
+ingress:
+  enabled: true
+  className: traefik
+  hosts:
+    - wealthfolio.example.test
+  tls:
+    - hosts:
+        - wealthfolio.example.test

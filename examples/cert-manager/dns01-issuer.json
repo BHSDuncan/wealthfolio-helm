@@ -1,0 +1,13 @@
+{
+  "apiVersion": "cert-manager.io/v1",
+  "kind": "Issuer",
+  "metadata": {"name": "wealthfolio-dns01", "namespace": "wealthfolio"},
+  "spec": {
+    "acme": {
+      "server": "https://acme-v02.api.letsencrypt.org/directory",
+      "email": "REPLACE_WITH_YOUR_EMAIL@example.invalid",
+      "privateKeySecretRef": {"name": "wealthfolio-dns01-account"},
+      "solvers": [{"dns01": {}}]
+    }
+  }
+}

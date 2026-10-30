@@ -1,0 +1,15 @@
+{
+  "name": "wealthfolio-chart-tests",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Synthetic browser verification for the unofficial Wealthfolio chart",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "browser": "node tests/integration/browser.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.64.1"
+  }
+}

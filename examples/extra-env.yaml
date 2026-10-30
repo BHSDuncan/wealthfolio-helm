@@ -1,0 +1,12 @@
+# An optional provider reference demonstrates integration; synthetic tests do not call it.
+auth:
+  existingSecret: wealthfolio-auth
+extraEnv:
+  - name: RUST_LOG
+    value: warn
+  - name: METAL_PRICE_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: wealthfolio-provider
+        key: metal-price-api-key
+        optional: false

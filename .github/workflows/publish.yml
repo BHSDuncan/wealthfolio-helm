@@ -1,0 +1,167 @@
+name: Owner-approved chart publication
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Exact authorized 40-character source commit SHA with successful hosted Chart validation
+        required: true
+        type: string
+      chart_version:
+        description: Immutable reviewed chart version
+        required: true
+        default: 0.1.0
+        type: string
+      create_github_release:
+        description: Also authorize a public GitHub release and artifact attachment
+        required: true
+        default: false
+        type: boolean
+permissions:
+  contents: read
+concurrency:
+  group: chart-publication
+  cancel-in-progress: false
+jobs:
+  gate:
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      source: ${{ steps.source.outputs.sha }}
+    steps:
+      - name: Require owner-configured enable switch and exact source
+        id: source
+        env:
+          ENABLED: ${{ vars.RELEASE_PUBLICATION_ENABLED }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          test "$ENABLED" = true
+          [[ "$SOURCE_REF" =~ ^[0-9a-f]{40}$ ]]
+          printf 'sha=%s\n' "$SOURCE_REF" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+          persist-credentials: false
+      - name: Verify successful CI for the exact source and chart version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          CHART_VERSION: ${{ inputs.chart_version }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SOURCE_SHA&status=success" > "$RUNNER_TEMP/ci-runs.json"
+          python3 - "$RUNNER_TEMP/ci-runs.json" "$SOURCE_SHA" <<'PY'
+          import json,sys
+          runs=json.load(open(sys.argv[1])).get('workflow_runs',[])
+          assert any(r.get('head_sha')==sys.argv[2] and r.get('conclusion')=='success' and r.get('event') in ('pull_request','push','workflow_dispatch') for r in runs), 'No actual successful hosted CI for this exact source'
+          PY
+          python3 scripts/setup-tools.py --platform linux-amd64
+          python3 -m venv .venv
+          .venv/bin/pip install --require-hashes -r requirements.lock
+          .venv/bin/python - "$SOURCE_SHA" "$CHART_VERSION" <<'PY'
+          import pathlib,sys,yaml
+          chart=yaml.safe_load(pathlib.Path('charts/wealthfolio/Chart.yaml').read_text())
+          assert chart['version']==sys.argv[2], 'Requested version differs from chart source'
+          PY
+          scripts/check.sh
+          scripts/package.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4 immutable artifact
+        with:
+          name: authorized-release-package
+          path: |
+            dist/*.tgz
+            dist/*.sha256
+          if-no-files-found: error
+  oci:
+    needs: gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: chart-publication
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.gate.outputs.source }}
+          persist-credentials: false
+      - run: python3 scripts/setup-tools.py --platform linux-amd64
+      - run: python3 -m venv .venv && .venv/bin/pip install --require-hashes -r requirements.lock
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: authorized-release-package
+          path: dist
+      - name: Publish or verify an exact retry, then check anonymous pullback
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GHCR_USER: ${{ github.actor }}
+          OWNER: ${{ github.repository_owner }}
+          VERSION: ${{ inputs.chart_version }}
+        run: |
+          set +x
+          export PATH="$PWD/.tools/bin:$PATH"
+          OWNER=$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')
+          export OWNER
+          python3 - <<'PY'
+          import base64,json,os,pathlib,urllib.request,urllib.error
+          owner=os.environ['OWNER']; name=f'{owner}/charts/wealthfolio'
+          auth=base64.b64encode(f"{os.environ['GHCR_USER']}:{os.environ['GH_TOKEN']}".encode()).decode()
+          request=urllib.request.Request(f'https://ghcr.io/token?service=ghcr.io&scope=repository:{name}:pull',headers={'Authorization':f'Basic {auth}'})
+          token=json.load(urllib.request.urlopen(request))['token']
+          request=urllib.request.Request(f"https://ghcr.io/v2/{name}/manifests/{os.environ['VERSION']}",method='HEAD',headers={'Authorization':f'Bearer {token}','Accept':'application/vnd.oci.image.manifest.v1+json'})
+          try:
+              urllib.request.urlopen(request)
+          except urllib.error.HTTPError as error:
+              if error.code!=404: raise
+          else: pathlib.Path(os.environ['RUNNER_TEMP'], 'existing-oci-version').touch()
+          PY
+          printf '%s' "$GH_TOKEN" | helm registry login ghcr.io --username "$GHCR_USER" --password-stdin
+          trap 'helm registry logout ghcr.io >/dev/null 2>&1 || true' EXIT
+          python3 .github/scripts/verify_checksum.py "dist/wealthfolio-$VERSION.tgz" "dist/wealthfolio-$VERSION.tgz.sha256"
+          if [[ ! -f "$RUNNER_TEMP/existing-oci-version" ]]; then
+            helm push "dist/wealthfolio-$VERSION.tgz" "oci://ghcr.io/$OWNER/charts" | tee "$RUNNER_TEMP/oci-push.txt"
+          fi
+          mkdir "$RUNNER_TEMP/pullback"
+          helm pull "oci://ghcr.io/$OWNER/charts/wealthfolio" --version "$VERSION" --destination "$RUNNER_TEMP/pullback"
+          if ! cmp "dist/wealthfolio-$VERSION.tgz" "$RUNNER_TEMP/pullback/wealthfolio-$VERSION.tgz"; then
+            printf 'Existing OCI version differs from the authorized artifact; overwrite forbidden.\n' >&2
+            exit 1
+          fi
+          # Anonymous availability is required before a public release announcement.
+          HELM_REGISTRY_CONFIG="$RUNNER_TEMP/anonymous-registry.json" helm show chart "oci://ghcr.io/$OWNER/charts/wealthfolio" --version "$VERSION"
+  github-release:
+    if: inputs.create_github_release
+    needs: [gate, oci]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: chart-publication
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.gate.outputs.source }}
+          persist-credentials: false
+      - run: python3 scripts/setup-tools.py --platform linux-amd64
+      - run: python3 -m venv .venv && .venv/bin/pip install --require-hashes -r requirements.lock
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: authorized-release-package
+          path: dist
+      - name: Create separately requested immutable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.chart_version }}
+          SOURCE_SHA: ${{ needs.gate.outputs.source }}
+        run: |
+          python3 .github/scripts/verify_checksum.py "dist/wealthfolio-$VERSION.tgz" "dist/wealthfolio-$VERSION.tgz.sha256"
+          if gh release view "wealthfolio-$VERSION" >/dev/null 2>&1; then
+            printf 'Release exists; refusing overwrite.\n' >&2
+            exit 1
+          fi
+          gh release create "wealthfolio-$VERSION" --target "$SOURCE_SHA" \
+            --title "Community Wealthfolio chart $VERSION" --notes-file CHANGELOG.md \
+            "dist/wealthfolio-$VERSION.tgz" "dist/wealthfolio-$VERSION.tgz.sha256" \
+            docs/compatibility.md

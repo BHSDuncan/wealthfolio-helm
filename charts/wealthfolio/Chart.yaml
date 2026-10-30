@@ -1,0 +1,19 @@
+apiVersion: v2
+name: wealthfolio
+description: Unofficial community Helm chart for the Wealthfolio personal finance application.
+type: application
+version: 0.1.0
+appVersion: "3.11.0"
+kubeVersion: ">=1.34.0-0"
+home: https://wealthfolio.app
+sources:
+  - https://github.com/wealthfolio/wealthfolio
+keywords:
+  - wealthfolio
+  - finance
+  - sqlite
+annotations:
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/changes: |
+    - kind: added
+      description: Initial unofficial single-writer chart with retained storage and external authentication Secret.

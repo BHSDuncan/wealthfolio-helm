@@ -1,0 +1,9 @@
+.git/
+.DS_Store
+*.swp
+*.swo
+*~
+*.un~
+*.tgz
+.env
+.env.*

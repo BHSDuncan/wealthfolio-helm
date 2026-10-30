@@ -1,0 +1,57 @@
+name: Chart validation
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: chart-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  static:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - run: python3 scripts/setup-tools.py --platform linux-amd64
+      - run: python3 -m venv .venv && .venv/bin/pip install --require-hashes -r requirements.lock
+      - run: scripts/check.sh
+      - run: python3 -m unittest discover -s .github/tests
+      - run: scripts/package.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: chart-package
+          path: |
+            dist/*.tgz
+            dist/*.sha256
+          if-no-files-found: error
+  kind:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - kubernetes: 1.35.8
+            helm: 3
+          - kubernetes: 1.37.0
+            helm: 4
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - run: python3 scripts/setup-tools.py --platform linux-amd64
+      - run: python3 -m venv .venv && .venv/bin/pip install --require-hashes -r requirements.lock
+      - run: scripts/package.sh
+      - name: Official-image install and persistence smoke
+        env:
+          WF_KUBERNETES_VERSION: ${{ matrix.kubernetes }}
+          WF_HELM_MAJOR: ${{ matrix.helm }}
+        run: scripts/integration.sh --environment kind --kubernetes-version "$WF_KUBERNETES_VERSION" --helm-major "$WF_HELM_MAJOR" --suite smoke --report dist/reports/kind-smoke.json
+      # Raw reports, kubeconfigs, credentials and browser traces are not uploaded.

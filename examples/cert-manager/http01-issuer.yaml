@@ -1,0 +1,18 @@
+# Reference template only. Prefer scripts/setup-cert-manager.sh, which substitutes
+# your namespace, issuer, email and ingress class without editing this file.
+# HTTP01 requires an owned public DNS name and public port 80 reachability.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: wealthfolio-http01
+  namespace: wealthfolio
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: REPLACE_WITH_YOUR_EMAIL@example.invalid
+    privateKeySecretRef:
+      name: wealthfolio-http01-account
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik

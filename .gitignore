@@ -1,0 +1,34 @@
+.tools/
+.venv/
+__pycache__/
+.pytest_cache/
+dist/
+.test-results/
+node_modules/
+*.pyc
+*.tgz
+*.tgz.sha256
+.DS_Store
+*.un~
+.local/
+
+# Local credentials, recovery material and financial data
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+kubeconfig
+kubeconfig.*
+*.kubeconfig
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.tar
+*.tar.gz
+# Public certificate used by installer tests; contains no private key.
+!tests/fixtures/public-ca.pem

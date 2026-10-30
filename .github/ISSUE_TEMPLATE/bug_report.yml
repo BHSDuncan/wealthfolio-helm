@@ -1,0 +1,26 @@
+name: Bug report
+description: Report a reproducible chart problem without private data
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: "Do not include Secret values, hashes, tokens, kubeconfigs, private addresses, financial records, or raw browser traces. Use SECURITY.md for sensitive findings."
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions and environment
+      description: Chart/app/image digest, Helm, Kubernetes/K3s version, architecture, storage driver and ingress class (redacted)
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction and expected result
+      description: Synthetic reproduction, nonsecret values/reference names, sanitized events and actual assertion
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Checks and evidence
+      description: Tests passed/failed/blocked and sanitized diagnostics; no credential dumps

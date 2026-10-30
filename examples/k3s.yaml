@@ -1,0 +1,9 @@
+# Verify cluster version, local-path availability, capacity and UID1000 writeability first.
+# local-path is node-local; it does not protect against host loss.
+auth:
+  existingSecret: wealthfolio-auth
+persistence:
+  storageClass: local-path
+  accessModes:
+    - ReadWriteOnce
+# Default localhost origins suit a LAN SSH tunnel to a loopback port-forward.

@@ -1,0 +1,104 @@
+# Unofficial community chart. Authentication references are required; no credentials belong here.
+nameOverride: ""
+fullnameOverride: ""
+replicaCount: 1
+image:
+  # Official upstream application image, pinned to its multiarchitecture index.
+  repository: ghcr.io/wealthfolio/wealthfolio
+  tag: "3.11.0"
+  digest: sha256:3e996e9b3fbf9c945eca89e7b89eb03e0966beb1c51b977ccccb811f76ae2994
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+auth:
+  existingSecret: ""
+  secretKeys:
+    secretKey: WF_SECRET_KEY
+    passwordHash: WF_AUTH_PASSWORD_HASH
+  tokenTtlMinutes: 60
+  cookieSecure: "auto"
+app:
+  # IPv4 wildcard by default; use "::" for IPv6-capable Pod networking.
+  listenAddress: "0.0.0.0"
+  corsAllowOrigins:
+    - http://localhost:8088
+    - http://127.0.0.1:8088
+  requestTimeoutMs: 300000
+  logFormat: text
+# False means databases are plaintext; credential vault encryption still requires the stable master key.
+encryption:
+  required: false
+persistence:
+  existingClaim: ""
+  size: 5Gi
+  storageClass: null
+  accessModes:
+    - ReadWriteOnce
+  annotations: {}
+service:
+  type: ClusterIP
+  port: 8088
+  nodePort: null
+  annotations: {}
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []
+  tls: []
+mcp:
+  enabled: false
+  auditEnabled: true
+  allowedHosts: []
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+tmp:
+  sizeLimit: 64Mi
+probes:
+  startup:
+    enabled: true
+    initialDelaySeconds: 0
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 60
+  readiness:
+    enabled: true
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+  liveness:
+    enabled: true
+    periodSeconds: 30
+    timeoutSeconds: 2
+    failureThreshold: 3
+terminationGracePeriodSeconds: 30
+commonLabels: {}
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+extraEnv: []
+tests:
+  enabled: true
+  image:
+    repository: docker.io/curlimages/curl
+    tag: "8.23.0"
+    digest: sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93

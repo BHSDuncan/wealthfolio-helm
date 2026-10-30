@@ -1,0 +1,6 @@
+auth:
+  existingSecret: wealthfolio-auth
+image:
+  repository: ghcr.io/wealthfolio/wealthfolio
+  tag: 3.11.0
+  digest: sha256:3e996e9b3fbf9c945eca89e7b89eb03e0966beb1c51b977ccccb811f76ae2994

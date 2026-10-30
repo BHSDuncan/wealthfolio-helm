@@ -1,0 +1,25 @@
+Unofficial community Helm chart for Wealthfolio; independently maintained.
+
+{{ if .Values.ingress.enabled }}
+Open a configured browser origin after its hostname resolves to your controller:
+{{ range $host := .Values.ingress.hosts }}{{ $scheme := "http" }}{{ range $.Values.ingress.tls }}{{ if has $host .hosts }}{{ $scheme = "https" }}{{ end }}{{ end }}{{ $prefix := printf "%s://%s" $scheme $host }}{{ $matched := false }}{{ range $.Values.app.corsAllowOrigins }}{{ if or (eq (lower .) $prefix) (hasPrefix (printf "%s:" $prefix) (lower .)) }}{{ $matched = true }}  {{ . }}
+{{ end }}{{ end }}{{ if not $matched }}  Configure app.corsAllowOrigins with the exact {{ $scheme }} browser origin for {{ $host }}, including any external port.
+{{ end }}
+{{ end }}
+Verify the existing controller/TLS and X-Forwarded-Proto before login.
+{{ else }}
+Wait for the Deployment, then use private loopback access:
+  kubectl --context <verified-context> --namespace {{ .Release.Namespace }} port-forward service/{{ include "wealthfolio.fullname" . }} 8088:{{ .Values.service.port }} --address 127.0.0.1
+Open http://localhost:8088 (or your explicitly configured browser origin).
+{{ end }}
+The external authentication Secret and stable master key must be retained separately.
+Databases are {{ if .Values.encryption.required }}required to be encrypted{{ else }}PLAINTEXT by default; the vault still uses the master key{{ end }}.
+The whole /data directory requires backup. Only one writer may use its claim.
+{{ if .Values.persistence.existingClaim }}
+An existing claim is mounted; size, storageClass, accessModes and PVC annotations are ignored.
+{{ else }}
+The chart-created PVC is retained on ordinary uninstall. Keep the namespace and
+external Secret; reinstall with persistence.existingClaim set to the retained claim.
+Namespace deletion, claim deletion and host loss can still destroy data.
+{{ end }}
+Recreate updates cause downtime. Helm rollback does not roll back databases.

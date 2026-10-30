@@ -1,0 +1,5 @@
+# For an IPv6-capable Pod network. The browser origin still follows your access URL.
+auth:
+  existingSecret: wealthfolio-auth
+app:
+  listenAddress: "::"

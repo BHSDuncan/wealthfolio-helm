@@ -1,0 +1,12 @@
+Wealthfolio community Helm chart
+Copyright 2026 Wealthfolio Helm chart contributors
+
+This is an independently maintained, unofficial community project.
+Wealthfolio is a trademark of Teymz Inc.
+No endorsement by Teymz Inc. or Wealthfolio's maintainers is implied.
+
+Independently authored chart, tooling, tests and documentation are Apache-2.0.
+The chart references the official Wealthfolio image; it does not redistribute
+or relicense the application binary, assets, source code or upstream artwork.
+Wealthfolio remains separately licensed under AGPL-3.0:
+https://github.com/wealthfolio/wealthfolio/blob/d1fda0b65f69d8557b1ef80e555c799215ad28b3/LICENSE

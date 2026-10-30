@@ -1,0 +1,9 @@
+# PATs are created in Settings > AI Agent Access, never stored in chart values.
+auth:
+  existingSecret: wealthfolio-auth
+mcp:
+  enabled: true
+  auditEnabled: true
+  allowedHosts:
+    - localhost:8088
+    - 127.0.0.1:8088
