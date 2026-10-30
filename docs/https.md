@@ -52,7 +52,7 @@ To install the operator and a public HTTP01 issuer using the current cluster:
   --issuer wealthfolio-http01 --email you@example.com --install-controller
 ```
 
-The helper uses the same default target selection as the application installer; `--context NAME`, `--kubeconfig PATH` and `--local-k3s` are optional overrides. The HTTP01 solver needs a suitable default IngressClass or an explicit `--ingress-class NAME`; detected/explicit local K3s defaults to Traefik. Without a suitable default or explicit class, multiple controllers may serve the challenge; see [HTTP01 configuration](https://cert-manager.io/docs/configuration/acme/http01/).
+The helper uses the same current-context default as the application installer; see [advanced target overrides](install.md#advanced-target-overrides-and-help) if needed. The HTTP01 solver needs a suitable default IngressClass or an explicit `--ingress-class NAME`; detected/explicit local K3s defaults to Traefik. Without a suitable default or explicit class, multiple controllers may serve the challenge; see [HTTP01 configuration](https://cert-manager.io/docs/configuration/acme/http01/).
 
 `--install-controller` is a separate opt-in global operation that installs the pinned official cert-manager chart and its CRDs/RBAC. It refuses an existing operator rather than adopting or upgrading it. The locked bootstrap version is 1.21.3, supporting Kubernetes 1.33–1.36; another cluster version requires an operator installed through an appropriate upstream procedure. Without that flag the helper only creates a namespaced issuer using the existing operator.
 

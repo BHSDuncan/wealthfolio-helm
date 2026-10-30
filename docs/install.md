@@ -80,11 +80,15 @@ Use sudo for both commands for the detected on-host K3s flow. Explicit context s
 
 The access helper reconnects an installation originally configured for local access. It does not silently change an Ingress installation's origins or cookie policy. `--hostname` and `--local-access` are mutually exclusive; switching an existing installation requires an explicit access reconfiguration or Helm upgrade. Use the same target, namespace, release, state-directory and port options when reconnecting. `--port` selects another local port if needed.
 
-## Target settings and help
+## Advanced target overrides and help
 
 Without target overrides, the installer follows kubectl's kubeconfig loading rules: `KUBECONFIG` selects and merges its listed files, otherwise it uses `~/.kube/config`. The selected current context is pinned for every Kubernetes/Helm operation. Only when neither source is configured does it try the standard local K3s configuration. It does not change your kubeconfig or current context.
 
-Use `--context NAME` to override the current context or `--kubeconfig /path/to/config` to select a single file. `--local-k3s` remains an optional explicit override to select this server's K3s configuration even when another user kubeconfig is present; it defaults to context `default` and `/etc/rancher/k3s/k3s.yaml` and needs sudo. SSH installation selects that K3s mode on the remote host. In SSH mode a supplied kubeconfig path must be absolute **on the remote host**; its contents are never copied to your workstation. The cert-manager setup helper uses the same default target and optional overrides. Keep the same target, namespace/release and recovery directory on reruns.
+Use `--context NAME` to override the current context or `--kubeconfig /path/to/config` to select a single file. The cert-manager setup helper uses the same defaults and optional overrides.
+
+`--local-k3s` is an optional advanced override that forces this server's K3s configuration instead of a configured user kubeconfig. It needs sudo and defaults to context `default` and `/etc/rancher/k3s/k3s.yaml`. Normal installation and automatic K3s detection do not need this flag.
+
+SSH installation selects the remote server's K3s configuration. In SSH mode a supplied kubeconfig path must be absolute **on the remote host**; its contents are never copied to your workstation. Keep the same target, namespace/release and recovery directory on reruns.
 
 Run `./scripts/install.sh --help` for local K3s and explicit-context options, or `./scripts/install.sh --ssh user@host --help` for optional SSH options. These help commands do not connect to a cluster. Managed reruns preserve credentials and data and refuse to change an existing installation's settings implicitly. Do not start a second writer on the same claim.
 
