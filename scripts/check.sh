@@ -10,7 +10,7 @@ for binary in "${HELM_BIN:-helm}" "${HELM4_BIN:-helm4}"; do
   command -v "$binary" >/dev/null || { echo "Missing $binary: run scripts/setup-tools.py" >&2; exit 1; }
   "$binary" version --short
   "$binary" lint charts/wealthfolio --strict -f tests/values/default-valid.yaml
-  HELM_BIN="$binary" python3 -m pytest -q tests/test_render.py tests/test_scripts.py tests/test_chart_adversarial.py tests/test_installer.py tests/test_install_remote.py tests/test_tls_bootstrap.py
+  HELM_BIN="$binary" python3 -m pytest -q tests/test_render.py tests/test_scripts.py tests/test_chart_adversarial.py tests/test_installer.py tests/test_install_remote.py tests/test_tls_bootstrap.py tests/test_integration_target.py
   "$binary" template wealthfolio charts/wealthfolio --namespace wealthfolio-chart-test \
     --kube-version 1.35.8 -f tests/values/default-valid.yaml > "$render_dir/default.yaml"
   for fixture in examples/*.yaml; do

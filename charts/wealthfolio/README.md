@@ -4,7 +4,7 @@ Unofficial community Helm chart for [Wealthfolio](https://wealthfolio.app/), mai
 
 ## Install and access
 
-This README also ships inside the chart archive. For the guided Kubernetes/K3s installer, download or clone the complete project repository and follow its root README. The installer runs locally by default using your kubeconfig’s current context, or the standard local K3s configuration when no user kubeconfig is configured. It creates credentials interactively. Explicit target overrides and optional SSH execution are also supported. Installer scripts and extended operator guides are intentionally outside this chart package. No public chart registry is configured yet.
+This README also ships inside the chart archive. For the guided Kubernetes installer, download or clone the complete project repository and follow its root README. The installer runs locally by default using the current context from a readable kubeconfig shared by kubectl and Helm. It creates credentials interactively. Explicit target overrides and optional SSH execution are also supported. Installer scripts and extended operator guides are intentionally outside this chart package. No public chart registry is configured yet.
 
 For direct Helm use, first create a namespace and use your secret-management workflow to create a namespace-local `wealthfolio-auth` Secret with these entries:
 
@@ -40,7 +40,7 @@ auth:
   cookieSecure: "true"
 ingress:
   enabled: true
-  className: traefik
+  className: your-ingress-class
   hosts:
     - wealthfolio.example.com
   tls:

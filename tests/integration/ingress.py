@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Private K3s Traefik TLS/browser acceptance on a distinct marked synthetic release.
+"""Private existing-controller TLS/browser acceptance on a distinct synthetic release.
 
 Uses only namespace resources and the existing controller. No trust-store or DNS
 changes: private CA verification plus a process-local exact browser SPKI pin.
@@ -11,6 +11,7 @@ import datetime
 import hashlib
 import http.cookiejar
 import json
+import ipaddress
 import os
 import re
 import traceback
@@ -35,15 +36,52 @@ HOST = 'wealthfolio-chart-test.example.test'
 IMAGE = 'sha256:3e996e9b3fbf9c945eca89e7b89eb03e0966beb1c51b977ccccb811f76ae2994'
 
 
-def main():
+def arguments():
     p = argparse.ArgumentParser(description=__doc__)
     for name in ('kubeconfig', 'context', 'namespace', 'run-id', 'confirm-cluster-uid', 'ssh-host', 'ssh-identity'):
         p.add_argument('--' + name, required=True)
     p.add_argument('--state-dir', type=Path, required=True)
     p.add_argument('--local-port', type=int, default=8443)
     p.add_argument('--release', default='wealthfolio-ingress-test')
+    p.add_argument('--ingress-class', help='Existing class; omitted uses the cluster default')
+    p.add_argument('--storage-class', help='Existing storage class; omitted uses the cluster default')
+    p.add_argument('--ingress-address', default='127.0.0.1', help='Controller address reachable from the SSH host')
+    p.add_argument('--ingress-port', type=int, default=443, help='Controller HTTPS port reachable from the SSH host')
     p.add_argument('--resume-private', action='store_true', help='Resume only matching owned inventory and privately generated credentials')
     a = p.parse_args()
+    if not 1 <= a.ingress_port <= 65535:
+        p.error('Ingress port must be between 1 and 65535')
+    for value in (a.ingress_class, a.storage_class):
+        if value is not None and not re.fullmatch(r'[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?', value):
+            p.error('Ingress and storage classes must be valid Kubernetes names')
+    try:
+        ipaddress.ip_address(a.ingress_address)
+    except ValueError:
+        if not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?', a.ingress_address):
+            p.error('Ingress address must be a hostname or IP address')
+    return a
+
+
+def route_values(a, host, origin, auth_name, tls_name):
+    values = {'fullnameOverride': a.release, 'commonLabels': {LABEL: a.run_id},
+              'auth': {'existingSecret': auth_name, 'cookieSecure': 'true'},
+              'image': {'repository': 'ghcr.io/wealthfolio/wealthfolio', 'tag': '3.11.0', 'digest': IMAGE, 'pullPolicy': 'IfNotPresent'},
+              'app': {'corsAllowOrigins': [origin]},
+              'ingress': {'enabled': True, 'hosts': [host], 'tls': [{'secretName': tls_name, 'hosts': [host]}]}}
+    if a.ingress_class:
+        values['ingress']['className'] = a.ingress_class
+    if a.storage_class:
+        values['persistence'] = {'storageClass': a.storage_class}
+    return values
+
+
+def forwarding(a):
+    address = '[' + a.ingress_address + ']' if ':' in a.ingress_address else a.ingress_address
+    return f'127.0.0.1:{a.local_port}:{address}:{a.ingress_port}'
+
+
+def main():
+    a = arguments()
     os.umask(0o077)
     state = a.state_dir.resolve()
     if ROOT == state or ROOT in state.parents or (state.exists() and not a.resume_private):
@@ -79,7 +117,8 @@ def main():
         assert get('namespace', 'kube-system')['metadata']['uid'] == a.confirm_cluster_uid
         assert get('namespace', a.namespace)['metadata'].get('labels', {}).get(LABEL) == a.run_id
         assert command(base + ['auth', 'can-i', 'create', 'ingresses']).strip() == b'yes'
-        assert any(c['metadata']['name'] == 'traefik' for c in get('ingressclasses')['items'])
+        if a.ingress_class:
+            assert any(c['metadata']['name'] == a.ingress_class for c in get('ingressclasses')['items'])
         if a.resume_private:
             expected_uid = next(item['uid'] for item in report['objects'] if item['kind'] == 'Deployment')
             deployment = get('deployment', a.release)
@@ -105,7 +144,7 @@ def main():
             stage = 'owned-secret-creation'
             create({'apiVersion': 'v1', 'kind': 'Secret', 'metadata': {'name': auth_name, 'namespace': a.namespace, 'labels': {LABEL: a.run_id}}, 'type': 'Opaque', 'stringData': {'WF_SECRET_KEY': master, 'WF_AUTH_PASSWORD_HASH': phc}})
             create({'apiVersion': 'v1', 'kind': 'Secret', 'metadata': {'name': tls_name, 'namespace': a.namespace, 'labels': {LABEL: a.run_id}}, 'type': 'kubernetes.io/tls', 'data': {'tls.crt': base64.b64encode((state / 'tls.crt').read_bytes()).decode(), 'tls.key': base64.b64encode((state / 'tls.key').read_bytes()).decode()}})
-            values = {'fullnameOverride': a.release, 'commonLabels': {LABEL: a.run_id}, 'auth': {'existingSecret': auth_name, 'cookieSecure': 'true'}, 'image': {'repository': 'ghcr.io/wealthfolio/wealthfolio', 'tag': '3.11.0', 'digest': IMAGE, 'pullPolicy': 'IfNotPresent'}, 'app': {'corsAllowOrigins': [origin]}, 'persistence': {'storageClass': 'local-path'}, 'ingress': {'enabled': True, 'className': 'traefik', 'annotations': {'traefik.ingress.kubernetes.io/router.entrypoints': 'websecure', 'traefik.ingress.kubernetes.io/router.tls': 'true'}, 'hosts': [HOST], 'tls': [{'secretName': tls_name, 'hosts': [HOST]}]}}
+            values = route_values(a, HOST, origin, auth_name, tls_name)
             (state / 'values.yaml').write_text(yaml.safe_dump(values))
             stage = 'isolated-chart-install'
             command(['helm', 'install', a.release, ROOT / 'dist/wealthfolio-0.1.0.tgz', '--kubeconfig', a.kubeconfig, '--kube-context', a.context, '--namespace', a.namespace, '-f', state / 'values.yaml', '--wait', '--timeout', '10m'])
@@ -116,7 +155,8 @@ def main():
             ingress = get('ingress', a.release)
             route = ingress['spec']['rules'][0]['http']['paths'][0]
             assert route['path'] == '/' and route['pathType'] == 'Prefix'
-            assert ingress['spec']['ingressClassName'] == 'traefik'
+            if a.ingress_class:
+                assert ingress['spec']['ingressClassName'] == a.ingress_class
         else:
             stage = 'private-resume-verification'
             # The same locally generated key/subject signs this client-trust root;
@@ -129,7 +169,7 @@ def main():
             der = command(['openssl', 'pkey', '-pubin', '-outform', 'DER'], pubkey)
             spki = base64.b64encode(hashlib.sha256(der).digest()).decode()
         stage = 'private-lan-tunnel'
-        tunnel = subprocess.Popen(['ssh', '-i', a.ssh_identity, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ExitOnForwardFailure=yes', '-N', '-L', f'127.0.0.1:{a.local_port}:127.0.0.1:443', a.ssh_host], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        tunnel = subprocess.Popen(['ssh', '-i', a.ssh_identity, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ExitOnForwardFailure=yes', '-N', '-L', forwarding(a), a.ssh_host], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(100):
             if tunnel.poll() is not None:
                 raise RuntimeError('Private SSH TLS tunnel failed')
@@ -168,9 +208,9 @@ def main():
         (state / 'browser.json').write_text(json.dumps(browser))
         result = json.loads(command(['node', ROOT / 'tests/integration/browser.mjs', '--base-url', origin, '--state-file', state / 'browser.json']))
         assert result['status'] == 'PASS'
-        report['results'] = [{'testId': name, 'status': 'PASS'} for name in ['existing-Traefik-root-Prefix-route', 'private-LAN-SSH-loopback-TLS', 'CA-chain-and-hostname-verified', 'exact-origin-CORS-denial', 'Secure-HttpOnly-cookie', 'two-profile-account-vault-fixture', 'HTTPS-browser-visible-account-vault-and-logout']]
+        report['results'] = [{'testId': name, 'status': 'PASS'} for name in ['existing-Ingress-root-Prefix-route', 'private-LAN-SSH-loopback-TLS', 'CA-chain-and-hostname-verified', 'exact-origin-CORS-denial', 'Secure-HttpOnly-cookie', 'two-profile-account-vault-fixture', 'HTTPS-browser-visible-account-vault-and-logout']]
         report['status'] = 'PASS'
-        print('T-INGRESS-TLS: PASS existing Traefik/private CA TLS/LAN tunnel/origin/Secure cookie/browser account+vault/logout')
+        print('T-INGRESS-TLS: PASS existing Ingress/private CA TLS/LAN tunnel/origin/Secure cookie/browser account+vault/logout')
     except Exception as error:
         (state / 'private-error.txt').write_text(traceback.format_exc())
         report['failureStage'] = stage

@@ -23,7 +23,7 @@ Use Python 3.10+ and kubectl configured for an existing Kubernetes **1.34+** clu
 
 **Local execution is the default; no mode flag is needed.** The installer uses the current context from `KUBECONFIG` or your default kubeconfig, which can point to a local or remote cluster. It prints the selected context and API server before making changes. Select another target with `--context NAME` or `--kubeconfig PATH`; use `--ingress-class NAME` when there is no suitable default ingress class.
 
-On a K3s server without a user kubeconfig, the installer can use its bundled kubectl and standard local configuration. Run the same command with `sudo` for this on-host K3s flow; normal kubeconfig-based installation does not require sudo. An invalid configured context stops installation instead of falling back to another cluster.
+The kubeconfig must be readable through `--kubeconfig PATH`, `KUBECONFIG` or `~/.kube/config`, so kubectl and Helm share the same configuration. Missing or invalid configuration stops installation; configure access to your cluster before retrying.
 
 Replace the example browser hostname. The installer prepares Helm, creates the namespace and credentials, and installs the official Wealthfolio image. Choose HTTP or HTTPS, choose a certificate path for HTTPS, and enter a login password. Keep the printed recovery-directory location. When installation finishes, open the printed application URL; the terminal can be closed.
 
@@ -31,15 +31,15 @@ HTTPS choices include the controller certificate, an existing TLS Secret, cert-m
 
 The installation machine needs access to Helm/Python package downloads when dependencies are missing; cluster nodes need access to the application image. See [installation options](docs/install.md) for prerequisites, target selection and private `--local-access` forwarding without a hostname or Ingress.
 
-## Optional: SSH installation on K3s
+## Optional: installation over SSH
 
-To run the installer from another macOS or Linux machine, use Python 3.10+ and OpenSSH on that machine, then run:
+To run through a remote Linux host, use Python 3.10+ and OpenSSH on your macOS or Linux workstation, then run:
 
 ```bash
 ./scripts/install.sh --ssh user@host --hostname wealthfolio.example.lan
 ```
 
-Replace the SSH target and browser hostname. The remote K3s server needs Python 3.10+, sudo access, durable storage and the same cluster/network prerequisites; recovery material stays on that server. SSH is only needed during setup for this hostname-based installation. See [SSH installation](docs/install.md#optional-installation-over-ssh) for keys and other options.
+Replace the SSH target and browser hostname. The remote host needs Python 3.10+, kubectl and a readable kubeconfig for the cluster. Commands run as the SSH account by default; optional `--sudo` uses root’s kubeconfig unless `--kubeconfig` selects another file. Recovery material stays on the remote host. SSH is only needed during setup for this hostname-based installation. See [SSH installation](docs/install.md#optional-installation-over-ssh) for keys and other options.
 
 ## Data and configuration
 

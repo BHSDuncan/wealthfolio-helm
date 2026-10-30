@@ -47,7 +47,7 @@ def _save(installer, path, value):
 def _openssl(*args):
     binary = shutil.which("openssl")
     if not binary:
-        raise TLSSetupError("Private-CA mode needs OpenSSL on the K3s host. Install your OS openssl package, then rerun; no certificate was generated.")
+        raise TLSSetupError("Private-CA mode needs OpenSSL on the installation machine. Install your OS openssl package, then rerun; no certificate was generated.")
     result = subprocess.run([binary, *map(str, args)], capture_output=True, text=True, timeout=90)
     if result.returncode:
         raise TLSSetupError("OpenSSL certificate generation or verification failed; private command output was withheld.")

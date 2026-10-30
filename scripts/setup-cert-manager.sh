@@ -13,13 +13,12 @@ import argparse,hashlib,importlib.util,json,os,pathlib,pwd,re,shutil,subprocess,
 root=pathlib.Path(sys.argv[1])
 spec=importlib.util.spec_from_file_location('wf_installer_tools',root/'scripts/installer.py');module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
 p=argparse.ArgumentParser(description='Explicit optional cert-manager and namespaced Issuer setup; no application deployment or device trust changes.')
-p.add_argument('--local-k3s',action='store_true',help='Optional explicit K3s override (sudo); otherwise use the current kubeconfig context or detected local K3s')
-p.add_argument('--context',help='Override the current kubeconfig context; explicit local K3s defaults to default')
+p.add_argument('--context',help='Override the current kubeconfig context')
 p.add_argument('--kubeconfig',help='Select a kubeconfig file; without --context use its current context')
 p.add_argument('--namespace',required=True)
 p.add_argument('--issuer',required=True)
 p.add_argument('--email',help='ACME account email for public HTTP01 issuance')
-p.add_argument('--ingress-class',help='HTTP01 solver class; detected/explicit local K3s defaults to traefik, otherwise use the cluster default')
+p.add_argument('--ingress-class',help='HTTP01 solver class; omitted uses the cluster default')
 p.add_argument('--issuer-file',type=pathlib.Path,help='Private mode0600 JSON document containing one reviewed namespaced Issuer, such as DNS01 provider configuration')
 p.add_argument('--install-controller',action='store_true',help='Explicitly install the pinned global cert-manager controller and CRDs if absent')
 p.add_argument('--dry-run',action='store_true',help='Print the HTTP01 plan without contacting any cluster')
@@ -52,12 +51,12 @@ def command(argv,data=None):
     return result.stdout
 account='wf-acme-'+hashlib.sha256(a.issuer.encode()).hexdigest()[:16]
 def http01_issuer():
-    ingress_class=a.ingress_class or ('traefik' if a.local_k3s else None)
+    ingress_class=a.ingress_class
     ingress={'ingressClassName':ingress_class} if ingress_class else {}
     return {'apiVersion':'cert-manager.io/v1','kind':'Issuer','metadata':{'name':a.issuer,'namespace':a.namespace},'spec':{'acme':{'email':a.email,'server':'https://acme-v02.api.letsencrypt.org/directory','privateKeySecretRef':{'name':account},'solvers':[{'http01':{'ingress':ingress}}]}}}
 if a.dry_run:
     if a.issuer_file:p.error('--dry-run prints only the generated HTTP01 plan; inspect your supplied issuer file directly')
-    print(json.dumps({'target':'local K3s' if a.local_k3s else (a.context or 'current kubeconfig context; local K3s fallback only if unconfigured'),'targetResolution':'deferred until execution; no kubeconfig, client binaries or API required for this plan','globalControllerInstall':a.install_controller,'controllerVersion':lock['version'],'issuer':http01_issuer(),'prerequisites':'HTTP01 needs an owned public domain resolving to the ingress and public port 80 reachability. Choose --ingress-class or configure a suitable cluster default. With no target override, local K3s detection and its Traefik default are deferred until execution. Private-LAN-only services need a configured DNS01 issuer instead.'},indent=2))
+    print(json.dumps({'target':a.context or 'current kubeconfig context','targetResolution':'deferred until execution; no kubeconfig, client binaries or API required for this plan','globalControllerInstall':a.install_controller,'controllerVersion':lock['version'],'issuer':http01_issuer(),'prerequisites':'HTTP01 needs an owned public domain resolving to the ingress and public port 80 reachability. Choose --ingress-class or configure a suitable cluster default. Private-LAN-only services need a configured DNS01 issuer instead.'},indent=2))
     sys.exit(0)
 try:
     kube,helm_target,context=module.resolve_kubernetes_target(a)
@@ -66,7 +65,7 @@ try:
         output=command(kube+(['-n',namespace] if namespace else [])+['get',kind,value,'--ignore-not-found','-o','json'])
         return json.loads(output) if output.strip() else None
     version=json.loads(command(kube+['version','-o','json']))['serverVersion']['gitVersion']
-    print('Target: context '+context+(' (local K3s)' if a.local_k3s else '')+'; Kubernetes '+version+'; application namespace '+a.namespace)
+    print('Target: context '+context+'; Kubernetes '+version+'; application namespace '+a.namespace)
     crd=get('customresourcedefinition','certificates.cert-manager.io')
     if a.install_controller:
         if crd:raise RuntimeError('cert-manager CRDs already exist; no existing operator was adopted or changed. Remove --install-controller and use the current operator.')

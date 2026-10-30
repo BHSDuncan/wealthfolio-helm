@@ -116,6 +116,8 @@ class InstallerTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.state = Path(self.temporary.name).resolve() / "recovery"
+        self.config = Path(self.temporary.name).resolve() / "client.yaml"
+        self.config.write_text("synthetic client configuration")
         self.cluster = Cluster()
         self.output = io.StringIO()
         self.password = "long synthetic password"
@@ -127,8 +129,8 @@ class InstallerTests(unittest.TestCase):
     def install(self, *extra, use_saved=False, answers=None, interactive=True, use_current=False):
         mode = [] if "--hostname" in extra or use_saved or "--configure-access" in extra else ["--local-access"]
         target = [] if use_current else ["--context", "safe-test"]
-        args = installer.parser().parse_args([*target, "--state-dir", str(self.state), "--no-access", *mode, *extra])
-        with mock.patch.object(installer, "run", self.cluster), mock.patch.object(installer, "K3S_KUBECONFIG", Path(self.temporary.name) / "absent-k3s.yaml"), mock.patch.object(installer.shutil, "which", return_value="/usr/bin/true"), mock.patch.object(installer.sys.stdin, "isatty", return_value=interactive), mock.patch.object(installer.getpass, "getpass", return_value=self.password), mock.patch.object(installer, "hash_password", return_value=self.hash), mock.patch("builtins.input", side_effect=["http"] if answers is None else answers) as prompt, contextlib.redirect_stdout(self.output):
+        args = installer.parser().parse_args([*target, "--kubeconfig", str(self.config), "--state-dir", str(self.state), "--no-access", *mode, *extra])
+        with mock.patch.object(installer, "run", self.cluster), mock.patch.object(installer.shutil, "which", return_value="/usr/bin/true"), mock.patch.object(installer.sys.stdin, "isatty", return_value=interactive), mock.patch.object(installer.getpass, "getpass", return_value=self.password), mock.patch.object(installer, "hash_password", return_value=self.hash), mock.patch("builtins.input", side_effect=["http"] if answers is None else answers) as prompt, contextlib.redirect_stdout(self.output):
             try:
                 installer.Installer(args).execute()
             finally:
@@ -428,21 +430,22 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(self.cluster.secret_creations, 0)
         self.assertIsNone(self.cluster.namespace)
 
-    def test_k3s_uses_traefik_by_default_without_installing_a_controller(self):
-        args = installer.parser().parse_args(["--context", "test", "--hostname", "wealthfolio.example.lan"])
+    def test_ingress_class_is_cluster_default_or_explicit_without_installing_a_controller(self):
+        args = installer.parser().parse_args(["--context", "test", "--kubeconfig", str(self.config), "--hostname", "wealthfolio.example.lan"])
         with mock.patch.object(installer.shutil, "which", return_value="/usr/bin/true"):
             instance = installer.Installer(args)
-        args.local_k3s = True
-        self.assertEqual(instance.network_values()["ingress"]["className"], "traefik")
+        self.assertEqual(instance.network_values()["ingress"]["className"], "")
+        args.ingress_class = "nginx"
+        self.assertEqual(instance.network_values()["ingress"]["className"], "nginx")
 
-    def test_local_k3s_honors_explicit_kubeconfig_and_context_without_reading_credentials(self):
+    def test_explicit_kubeconfig_and_context_do_not_require_root_or_read_credentials(self):
         config = Path(self.temporary.name) / "custom cluster.yaml"
         config.write_text("private kubeconfig never copied")
-        args = installer.parser().parse_args(["--local-k3s", "--kubeconfig", str(config),
+        args = installer.parser().parse_args(["--kubeconfig", str(config),
                                               "--context", "edge-target", "--local-access"])
-        with mock.patch.object(installer.os, "geteuid", return_value=0), mock.patch.object(installer.shutil, "which", return_value="/test/k3s"), mock.patch.object(installer, "run") as command:
+        with mock.patch.object(installer.shutil, "which", return_value="/usr/bin/true"), mock.patch.object(installer, "run") as command:
             instance = installer.Installer(args)
-            self.assertEqual(instance.kubectl, ["/test/k3s", "kubectl", "--kubeconfig", str(config.absolute()), "--context", "edge-target"])
+            self.assertEqual(instance.kubectl, ["/usr/bin/true", "--kubeconfig", str(config.absolute()), "--context", "edge-target"])
             self.assertEqual(instance.helm_target, ["--kubeconfig", str(config.absolute()), "--kube-context", "edge-target"])
             self.assertEqual(instance.context, "edge-target")
             command.assert_not_called()
@@ -492,7 +495,7 @@ class InstallerTests(unittest.TestCase):
         with mock.patch.object(installer.shutil, "which", return_value="/usr/bin/true"), mock.patch.object(installer, "run") as command:
             for flags in combinations:
                 with self.subTest(flags=flags), self.assertRaises(installer.InstallError):
-                    installer.Installer(installer.parser().parse_args(["--context", "test", *flags]))
+                    installer.Installer(installer.parser().parse_args(["--context", "test", "--kubeconfig", str(self.config), *flags]))
             command.assert_not_called()
 
     def test_ingress_retry_preserves_url_and_rejects_implicit_network_changes(self):
@@ -911,12 +914,9 @@ class TargetResolutionTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.home = Path(self.temporary.name).resolve()
-        self.k3s_config = self.home / "k3s.yaml"
-        self.k3s_available = False
         for patcher in (mock.patch.object(installer.Path, "home", return_value=self.home),
-                        mock.patch.object(installer, "K3S_KUBECONFIG", self.k3s_config),
                         mock.patch.dict(installer.os.environ, {"KUBECONFIG": ""}),
-                        mock.patch.object(installer.shutil, "which", side_effect=lambda name: "/usr/bin/true" if name != "k3s" or self.k3s_available else None)):
+                        mock.patch.object(installer.shutil, "which", return_value="/usr/bin/true")):
             patcher.start()
             self.addCleanup(patcher.stop)
 
@@ -937,15 +937,12 @@ class TargetResolutionTests(unittest.TestCase):
         self.assertEqual(result.context, "local-cluster")
         self.assertEqual(result.kubectl[-2:], ["--context", "local-cluster"])
         self.assertEqual(result.helm_target, ["--kubeconfig", str(config), "--kube-context", "local-cluster"])
-        self.assertFalse(result.args.local_k3s)
 
-    def test_explicit_context_overrides_current_context_and_k3s_fallback(self):
-        self.k3s_config.write_text("synthetic server config")
-        self.k3s_available = True
+    def test_explicit_context_overrides_current_context(self):
+        self.user_config()
         with mock.patch.object(installer, "run") as command:
             result = installer.Installer(self.args("--context", "chosen-cluster"))
         self.assertEqual(result.context, "chosen-cluster")
-        self.assertFalse(result.args.local_k3s)
         command.assert_not_called()
 
     def test_kubeconfig_alone_uses_its_current_context(self):
@@ -971,9 +968,7 @@ class TargetResolutionTests(unittest.TestCase):
         self.assertNotIn("--kubeconfig", result.kubectl)
         self.assertEqual(result.context, "merged-context")
 
-    def test_configured_missing_invalid_or_unreadable_context_never_falls_back(self):
-        self.k3s_available = True
-        self.k3s_config.write_text("synthetic server config")
+    def test_missing_invalid_or_unreadable_configuration_never_selects_another_source(self):
         for source in ("missing-environment-file", "empty-default-file", "unreadable-default-file", "broken-default-symlink"):
             with self.subTest(source=source):
                 config = self.home / ".kube/config"
@@ -991,9 +986,8 @@ class TargetResolutionTests(unittest.TestCase):
                         config.symlink_to(self.home / "missing")
                 args = self.args()
                 with mock.patch.dict(installer.os.environ, environment), mock.patch.object(installer, "run", return_value=subprocess.CompletedProcess([], 1, "", "private diagnostic")):
-                    with self.assertRaisesRegex(installer.InstallError, "No usable current Kubernetes context"):
+                    with self.assertRaisesRegex(installer.InstallError, "no other target was selected"):
                         installer.Installer(args)
-                self.assertFalse(args.local_k3s)
 
     def test_absent_or_ambiguous_current_context_fails_without_mutation(self):
         self.user_config()
@@ -1007,18 +1001,11 @@ class TargetResolutionTests(unittest.TestCase):
                 installer.Installer(self.args("--kubeconfig", str(self.home / "missing")))
             command.assert_not_called()
 
-    def test_local_k3s_fallback_only_without_user_configuration(self):
-        self.k3s_available = True
-        self.k3s_config.write_text("synthetic server config")
-        with mock.patch.object(installer.os, "geteuid", return_value=0), mock.patch.object(installer, "run") as command:
-            result = installer.Installer(self.args())
-        self.assertTrue(result.args.local_k3s)
-        self.assertEqual(result.context, "default")
-        self.assertEqual(result.kubectl, ["/usr/bin/true", "kubectl", "--kubeconfig", str(self.k3s_config), "--context", "default"])
-        command.assert_not_called()
-        with mock.patch.object(installer.os, "geteuid", return_value=1000):
-            with self.assertRaisesRegex(installer.InstallError, "sudo"):
+    def test_unconfigured_client_stops_before_invoking_a_client_specific_fallback(self):
+        with mock.patch.object(installer, "run") as command:
+            with self.assertRaisesRegex(installer.InstallError, "No usable default kubeconfig"):
                 installer.Installer(self.args())
+            command.assert_not_called()
 
 
 if __name__ == "__main__":

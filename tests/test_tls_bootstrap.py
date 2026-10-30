@@ -295,9 +295,9 @@ def test_bootstrap_dry_run_has_no_api_contact_and_declares_global_scope(tmp_path
     assert not log.exists() and not created.exists()
 
 
-def test_cert_manager_defaults_to_current_context_without_forcing_traefik(tmp_path):
+def test_cert_manager_accepts_vendor_build_suffix_without_changing_context_or_ingress_class(tmp_path):
     environment, log, created = setup_script(tmp_path)
-    environment['WF_SETUP_TEST_VERSION'] = 'v1.35.8+k3s1'
+    environment['WF_SETUP_TEST_VERSION'] = 'v1.35.8+vendor.1'
     result = call_setup(environment, "--email", "operator@example.test", explicit_target=False)
     assert result.returncode == 0, result.stderr
     assert "context current-test" in result.stdout
@@ -333,7 +333,7 @@ def test_cert_manager_broken_config_stops_before_any_api_operation(tmp_path):
 
 
 @pytest.mark.parametrize('target,expected_ingress', [([], {}), (['--context', 'preview'], {}),
-                                                    (['--local-k3s'], {'ingressClassName': 'traefik'}),
+                                                    (['--kubeconfig', '/unavailable/preview-config'], {}),
                                                     (['--ingress-class', 'nginx'], {'ingressClassName': 'nginx'})])
 def test_cert_manager_dry_run_needs_no_client_binaries_or_configuration(tmp_path, target, expected_ingress):
     import shutil, subprocess, sys
@@ -354,12 +354,12 @@ def test_cert_manager_dry_run_needs_no_client_binaries_or_configuration(tmp_path
     assert ingress == expected_ingress
 
 
-def test_bootstrap_accepts_explicit_local_k3s_context_and_kubeconfig_without_api_contact(tmp_path):
+def test_bootstrap_accepts_explicit_context_and_kubeconfig_without_api_contact(tmp_path):
     environment, log, created = setup_script(tmp_path)
-    result = call_setup(environment, "--local-k3s", "--kubeconfig", str(tmp_path / "custom cluster.yaml"),
+    result = call_setup(environment, "--kubeconfig", str(tmp_path / "custom cluster.yaml"),
                         "--email", "operator@example.test", "--dry-run")
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout)["target"] == "local K3s"
+    assert json.loads(result.stdout)["target"] == "explicit-test"
     assert not log.exists() and not created.exists()
 
 

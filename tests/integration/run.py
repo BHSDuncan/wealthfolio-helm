@@ -2,7 +2,7 @@
 """Explicit-target synthetic Kubernetes lifecycle acceptance driver.
 
 Reports are sanitized; private fixtures, archives and kubeconfig stay outside Git.
-K3s never deletes a namespace, Secret or PVC, including after successful tests.
+Existing-cluster mode never deletes a namespace, Secret or PVC, including after successful tests.
 """
 import argparse
 import base64
@@ -42,7 +42,7 @@ def stamp():
 
 def arguments():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--environment', choices=['kind', 'k3s'], required=True)
+    p.add_argument('--environment', choices=['kind', 'existing'], required=True)
     p.add_argument('--kubernetes-version', choices=['1.34.11', '1.35.8', '1.37.0'], default='1.35.8')
     p.add_argument('--helm-major', choices=['3', '4'], default='3')
     p.add_argument('--suite', choices=['full', 'smoke'], default='full')
@@ -103,7 +103,7 @@ class Harness:
             self.port = available.getsockname()[1]
         self.helm = 'helm4' if a.helm_major == '4' else 'helm'
         self.kubectl = 'kubectl'
-        self.report = {'startedAt': stamp(), 'runId': self.run_id, 'environment': a.environment, 'suite': a.suite, 'helmMajor': a.helm_major, 'checkId': ('k3s' if a.environment == 'k3s' else ('helm4-smoke' if a.helm_major == '4' else 'kind-' + a.kubernetes_version + '-' + a.suite)), 'source': self.source(), 'chartVersion': '0.1.0', 'appVersion': '3.11.0', 'imageDigest': IMAGE_DIGEST, 'results': self.results}
+        self.report = {'startedAt': stamp(), 'runId': self.run_id, 'environment': a.environment, 'suite': a.suite, 'helmMajor': a.helm_major, 'checkId': ('existing' if a.environment == 'existing' else ('helm4-smoke' if a.helm_major == '4' else 'kind-' + a.kubernetes_version + '-' + a.suite)), 'source': self.source(), 'chartVersion': '0.1.0', 'appVersion': '3.11.0', 'imageDigest': IMAGE_DIGEST, 'results': self.results}
         self.report['packageSha256'] = hashlib.sha256(self.artifact.read_bytes()).hexdigest()
         if self.prior_report:
             raw = json.dumps(self.prior_report, sort_keys=True).encode()
@@ -166,7 +166,7 @@ class Harness:
 
     def discover(self):
         a = self.a
-        if a.environment == 'k3s' or a.kubeconfig:
+        if a.environment == 'existing' or a.kubeconfig:
             if not all((a.kubeconfig, a.context, a.namespace, a.release, a.confirm_cluster_uid)):
                 raise RuntimeError('Existing cluster requires explicit kubeconfig/context/namespace/release/confirm-cluster-uid')
         else:
@@ -227,7 +227,7 @@ class Harness:
         if not self.a.image_archive:
             return
         if self.a.environment != 'kind':
-            raise RuntimeError('K3s import is an owner-performed containerd operation, never elevated by this harness')
+            raise RuntimeError('Image archive import is supported only in owned disposable Kind nodes')
         if not self.a.values:
             raise RuntimeError('--image-archive requires --values with explicit repository/tag/digest')
         image = yaml.safe_load(self.a.values.read_text())['image']
@@ -678,7 +678,7 @@ class Harness:
                 process.terminate()
         self.report['finishedAt'] = stamp()
         self.report['status'] = 'PASS' if self.results and all(r['status'] == 'PASS' for r in self.results) else 'INCOMPLETE'
-        self.report['retention'] = 'Synthetic namespace/Secret/PVC retained; final deletion requires owner choice' if self.a.environment == 'k3s' or not self.created_cluster or self.a.keep_cluster else 'Owned disposable Kind cluster removed'
+        self.report['retention'] = 'Synthetic namespace/Secret/PVC retained; final deletion requires owner choice' if self.a.environment == 'existing' or not self.created_cluster or self.a.keep_cluster else 'Owned disposable Kind cluster removed'
         self.save()
         if self.created_cluster and not self.a.keep_cluster:
             self.command(['kind', 'delete', 'cluster', '--name', self.run_id], check=False)

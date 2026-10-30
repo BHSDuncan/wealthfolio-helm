@@ -29,7 +29,7 @@ def fixture_source(directory):
 
 
 def args(**changes):
-    values = dict(ssh="operator@node.example", identity=None, namespace="wealthfolio", release="wealthfolio",
+    values = dict(ssh="operator@node.example", sudo=False, identity=None, namespace="wealthfolio", release="wealthfolio",
                   port=8088, state_dir=None, no_access=False, access_only=False,
                   hostname="wealthfolio.example.lan", local_access=False, ingress_class=None, tls_secret=None, scheme=None,
                   configure_access=False, tls_mode=None, issuer=None, issuer_kind=None, export_ca=None,
@@ -49,7 +49,8 @@ def test_reject_ssh_option_and_shell_injection(target):
 def test_quoted_paths_are_literal_arguments():
     options = args(state_dir="/home/operator/private state; do-not-run")
     command = shlex.split(remote.remote_command("/tmp/wealthfolio-install-safe/payload", "operator", options))
-    assert command[:3] == ["sudo", "--", "bash"]
+    assert command[:2] == ["bash", "/tmp/wealthfolio-install-safe/payload/scripts/install.sh"]
+    assert "sudo" not in command
     assert command[command.index("--state-dir") + 1] == options.state_dir
     assert command[command.index("--hostname") + 1] == options.hostname
     assert "--access" not in command
@@ -82,7 +83,8 @@ def test_custom_remote_target_network_and_mirror_settings_are_literal_arguments(
     command = shlex.split(remote.remote_command("/srv/staging/wealthfolio-install-safe/payload", "operator", options))
     for key in ("context", "kubeconfig", "ingress_port", "image_repository", "image_tag", "image_digest", "listen_address"):
         assert command[command.index("--" + key.replace("_", "-")) + 1] == str(getattr(options, key))
-    assert "--local-k3s" in command and "-c" not in command
+    assert command[:2] == ["bash", "/srv/staging/wealthfolio-install-safe/payload/scripts/install.sh"]
+    assert "-c" not in command and "sudo" not in command
     options.setup_cert_manager = True
     options.hostname = options.scheme = options.tls_mode = options.ingress_port = None
     options.image_repository = options.image_tag = options.image_digest = options.listen_address = None
@@ -377,7 +379,7 @@ def test_noninteractive_transport_preserves_explicit_settings_without_allocating
     with mock.patch.object(sys.stdin, "isatty", return_value=False):
         assert remote.main(["--ssh", "operator@node.example", "--hostname", "wealthfolio.example.lan",
                             "--scheme", "http", "--existing-secret", "operator-auth"]) == 0
-    sessions = [command for command in calls if "sudo -n -- bash" in command[-1]]
+    sessions = [command for command in calls if "payload/scripts/install.sh" in command[-1] and command[0] == "ssh"]
     assert len(sessions) == 1
     session = sessions[0]
     assert "-T" in session and "-t" not in session and "BatchMode=yes" in session
@@ -389,7 +391,8 @@ def test_noninteractive_transport_preserves_explicit_settings_without_allocating
 
 def test_noninteractive_transport_never_infers_a_missing_scheme():
     command = shlex.split(remote.remote_command("/tmp/wealthfolio-install-safe/payload", "operator", args(), interactive=False))
-    assert command[:3] == ["sudo", "-n", "--"]
+    assert command[0] == "bash"
+    assert "sudo" not in command
     assert "--scheme" not in command and "--tls-secret" not in command
 
 
@@ -481,7 +484,8 @@ def test_cert_manager_setup_is_a_separate_explicit_remote_action():
     options = args(hostname=None, setup_cert_manager=True, issuer="public-acme", email="operator@example.test")
     remote.validate_args(options)
     command = shlex.split(remote.remote_command("/tmp/wealthfolio-install-safe/payload", "operator", options))
-    assert command[2:5] == ["bash", "/tmp/wealthfolio-install-safe/payload/scripts/setup-cert-manager.sh", "--local-k3s"]
+    assert command[:2] == ["bash", "/tmp/wealthfolio-install-safe/payload/scripts/setup-cert-manager.sh"]
+    assert "sudo" not in command
     assert "--install-controller" not in command and "--export-ca" not in command
     assert all(not item.endswith("scripts/install.sh") for item in command)
     options.install_controller = True
@@ -561,3 +565,70 @@ def test_reviewed_issuer_wrong_kind_is_refused_before_any_ssh(tmp_path, monkeypa
     monkeypatch.setattr(remote.subprocess, "run", lambda *a, **k: pytest.fail("Invalid issuer must not contact SSH"))
     assert remote.main(["--ssh", "operator@node.example", "--setup-cert-manager", "--issuer", "chosen",
                         "--issuer-file", str(supplied), "--install-controller"]) == 1
+
+
+@pytest.mark.parametrize("interactive", [True, False])
+@pytest.mark.parametrize("setup", [True, False])
+def test_remote_elevation_is_explicit_and_uses_root_configuration(interactive, setup):
+    options = args(sudo=True, setup_cert_manager=setup,
+                   hostname=None if setup else "wealthfolio.example.test",
+                   issuer="acme" if setup else None, email="operator@example.test" if setup else None,
+                   kubeconfig="/srv/config/root target.yaml", context="chosen-target")
+    remote.validate_args(options)
+    command = shlex.split(remote.remote_command("/srv/staging/wealthfolio-install-safe/payload", "operator", options, interactive=interactive))
+    prefix = ["sudo", "-H", *([] if interactive else ["-n"]), "--", "env", "-u", "KUBECONFIG"]
+    assert command[:len(prefix)] == prefix
+    assert command[len(prefix)] == "bash"
+    assert command[command.index("--kubeconfig") + 1] == options.kubeconfig
+    assert command[command.index("--context") + 1] == options.context
+    if not setup:
+        assert command[command.index("--owner-user") + 1] == "operator"
+
+
+def test_ssh_parser_defaults_to_remote_user_without_privilege_or_target_override():
+    options = remote.parser().parse_args(["--ssh", "operator@node.example", "--hostname", "wealthfolio.example.test"])
+    assert options.sudo is False and options.context is None and options.kubeconfig is None
+    remote.validate_args(options)
+    command = shlex.split(remote.remote_command("/srv/staging/wealthfolio-install-safe/payload", "operator", options))
+    assert command[0] == "bash"
+    assert "sudo" not in command and "--context" not in command and "--kubeconfig" not in command
+
+
+@pytest.mark.parametrize('elevated', [False, True])
+def test_remote_command_executes_with_deliberate_account_configuration(tmp_path, elevated):
+    """Run the shell adapter with a fake sudo; never elevate or contact a cluster."""
+    import os
+    import textwrap
+
+    binaries = tmp_path / 'bin'
+    binaries.mkdir()
+    root_home = tmp_path / 'root home'
+    root_home.mkdir()
+    operator_home = tmp_path / 'operator home'
+    operator_home.mkdir()
+    payload = tmp_path / 'payload with spaces'
+    script = payload / 'scripts/install.sh'
+    script.parent.mkdir(parents=True)
+    script.write_text('exec ' + shlex.quote(sys.executable) + ' -c ' + shlex.quote(
+        "import json,os,sys; print(json.dumps({'home':os.environ['HOME'],'config':os.environ.get('KUBECONFIG'),'args':sys.argv[1:]}))") + ' "$@"\n')
+    sudo = binaries / 'sudo'
+    sudo.write_text(f'#!{sys.executable}\n' + textwrap.dedent('''\
+        import os,subprocess,sys
+        args=sys.argv[1:]
+        assert args.pop(0)=='-H'
+        if args[0]=='-n': args.pop(0)
+        assert args.pop(0)=='--'
+        environment=dict(os.environ,HOME=os.environ['TEST_ROOT_HOME'])
+        raise SystemExit(subprocess.call(args,env=environment))
+        '''))
+    sudo.chmod(0o700)
+    options = args(sudo=elevated)
+    command = remote.remote_command(str(payload), 'operator', options, interactive=False)
+    environment = dict(os.environ, PATH=str(binaries)+os.pathsep+os.environ['PATH'],
+                       HOME=str(operator_home), KUBECONFIG=str(operator_home/'config'), TEST_ROOT_HOME=str(root_home))
+    result = subprocess.run(['bash', '-c', command], env=environment, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads(result.stdout)
+    assert receipt['home'] == str(root_home if elevated else operator_home)
+    assert receipt['config'] == (None if elevated else str(operator_home/'config'))
+    assert receipt['args'][receipt['args'].index('--owner-user')+1] == 'operator'

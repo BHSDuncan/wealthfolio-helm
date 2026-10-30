@@ -28,14 +28,14 @@ scripts/integration.sh --environment kind --kubernetes-version 1.35.8 \
 
 The full suite also needs Node.js 22+, `npm ci --ignore-scripts` and `npx playwright install chromium`; Linux may require `--with-deps`. Select `--suite full` to exercise synthetic profiles, credentials, lifecycle, backup/recovery, encryption and MCP.
 
-For K3s, use a scoped kubeconfig, explicit context and empty dedicated test namespace. Set `WF_CLUSTER_UID` to the `kube-system` namespace UID obtained from that verified context:
+For an existing Kubernetes cluster, use a scoped kubeconfig, explicit context and empty dedicated test namespace. Set `WF_CLUSTER_UID` to the `kube-system` namespace UID obtained from that verified context:
 
 ```bash
-scripts/integration.sh --environment k3s \
+scripts/integration.sh --environment existing \
   --kubeconfig "$WF_KUBECONFIG" --context "$WF_CONTEXT" \
   --namespace wealthfolio-chart-test --release wealthfolio-test \
   --confirm-cluster-uid "$WF_CLUSTER_UID" \
-  --report dist/reports/k3s.json
+  --report dist/reports/existing-cluster.json
 ```
 
 Integration tests create resources and synthetic data. Never use valuable storage or an ambient current context. Keep TLS and SSH host verification enabled, use existing cluster infrastructure, and clean up only resources belonging to the test run. Test reports must exclude credentials, real financial data, kubeconfigs and private endpoints. See [compatibility](docs/compatibility.md) for coverage limits.
