@@ -42,6 +42,7 @@ class Cluster:
         self.upgrade_response_lost = False
         self.fail_before_upgrade = False
         self.helm_version = "v3.22.1+fixture"
+        self.current_context = "safe-test"
 
     def __call__(self, command, *, data=None, check=True):
         command = [str(x) for x in command]
@@ -53,7 +54,7 @@ class Cluster:
         elif "version" in command:
             output = json.dumps({"serverVersion": {"gitVersion": "v1.35.8"}})
         elif "config" in command:
-            output = self.endpoint
+            output = self.current_context if "current-context" in command else self.endpoint
         elif "get" in command and "values" in command:
             output = json.dumps(self.values)
         elif "get" in command:
@@ -123,10 +124,11 @@ class InstallerTests(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
-    def install(self, *extra, use_saved=False, answers=None, interactive=True):
+    def install(self, *extra, use_saved=False, answers=None, interactive=True, use_current=False):
         mode = [] if "--hostname" in extra or use_saved or "--configure-access" in extra else ["--local-access"]
-        args = installer.parser().parse_args(["--context", "safe-test", "--state-dir", str(self.state), "--no-access", *mode, *extra])
-        with mock.patch.object(installer, "run", self.cluster), mock.patch.object(installer.shutil, "which", return_value="/usr/bin/true"), mock.patch.object(installer.sys.stdin, "isatty", return_value=interactive), mock.patch.object(installer.getpass, "getpass", return_value=self.password), mock.patch.object(installer, "hash_password", return_value=self.hash), mock.patch("builtins.input", side_effect=["http"] if answers is None else answers) as prompt, contextlib.redirect_stdout(self.output):
+        target = [] if use_current else ["--context", "safe-test"]
+        args = installer.parser().parse_args([*target, "--state-dir", str(self.state), "--no-access", *mode, *extra])
+        with mock.patch.object(installer, "run", self.cluster), mock.patch.object(installer, "K3S_KUBECONFIG", Path(self.temporary.name) / "absent-k3s.yaml"), mock.patch.object(installer.shutil, "which", return_value="/usr/bin/true"), mock.patch.object(installer.sys.stdin, "isatty", return_value=interactive), mock.patch.object(installer.getpass, "getpass", return_value=self.password), mock.patch.object(installer, "hash_password", return_value=self.hash), mock.patch("builtins.input", side_effect=["http"] if answers is None else answers) as prompt, contextlib.redirect_stdout(self.output):
             try:
                 installer.Installer(args).execute()
             finally:
@@ -282,9 +284,48 @@ class InstallerTests(unittest.TestCase):
             self.install()
         self.assertEqual(self.cluster.installations, 1)
 
-    def test_no_ambient_context(self):
-        with self.assertRaisesRegex(installer.InstallError, "current context"):
-            installer.Installer(installer.parser().parse_args([]))
+    def test_current_context_install_and_retry_keep_credentials_and_pin_every_target(self):
+        secure_directory = installer.secure_directory
+        def check_target_before_state(*args, **kwargs):
+            self.assertIn("context safe-test", self.output.getvalue())
+            self.assertIn("API https://test.invalid", self.output.getvalue())
+            return secure_directory(*args, **kwargs)
+        with mock.patch.object(installer, "secure_directory", side_effect=check_target_before_state):
+            self.install("--hostname", "wealthfolio.example.lan", "--scheme", "http", use_current=True, answers=[])
+        original_key = (self.state / "master-key").read_bytes()
+        self.install("--hostname", "wealthfolio.example.lan", use_current=True, answers=[])
+        self.assertEqual(self.cluster.installations, 1)
+        self.assertEqual(self.cluster.secret_creations, 1)
+        self.assertEqual((self.state / "master-key").read_bytes(), original_key)
+        self.assertEqual(self.cluster.values["ingress"]["className"], "")
+        self.assertIn("context safe-test", self.output.getvalue())
+        self.assertIn("API https://test.invalid", self.output.getvalue())
+        for command, _ in self.cluster.calls:
+            if "current-context" in command or "template" in command or command[1:] == ["version", "--short"]:
+                continue
+            self.assertTrue("--context" in command or "--kube-context" in command, command)
+            for flag in ("--context", "--kube-context"):
+                if flag in command:
+                    self.assertEqual(command[command.index(flag) + 1], "safe-test")
+        self.cluster.current_context = "different-target"
+        with self.assertRaisesRegex(installer.InstallError, "different target"):
+            self.install("--hostname", "wealthfolio.example.lan", use_current=True, answers=[])
+        self.assertEqual(self.cluster.installations, 1)
+
+    def test_current_context_unattended_install_with_existing_secret_has_no_extra_gate(self):
+        self.cluster.namespace = {"metadata": {"uid": "namespace-uid"}}
+        self.cluster.secret = {"metadata": {"uid": "existing-secret-uid"}}
+        self.install("--existing-secret", "wealthfolio-auth", use_current=True, interactive=False, answers=[])
+        self.assertEqual(self.cluster.installations, 1)
+        self.assertEqual(self.prompts, [])
+
+    def test_target_display_does_not_expose_url_credentials_or_query(self):
+        self.cluster.endpoint = "https://operator:private-api-pass@cluster.example.test:6443/api?token=private-query-value#hidden"
+        self.install()
+        output = self.output.getvalue()
+        self.assertIn("API https://cluster.example.test:6443/api", output)
+        self.assertNotIn("private-api-pass", output)
+        self.assertNotIn("private-query-value", output)
 
     def test_locked_helm_bootstrap_covers_supported_hosts_and_rejects_corruption(self):
         locks = json.loads((installer.ROOT / "tools.lock.json").read_text())
@@ -863,6 +904,121 @@ class CommandCompatibilityTests(unittest.TestCase):
             with self.subTest(version=version), mock.patch.object(installer, "run", return_value=subprocess.CompletedProcess([], 0, version, "")):
                 with self.assertRaisesRegex(installer.InstallError, "requires Helm 3 or Helm 4"):
                     installer.helm_list_status_flags("helm")
+
+
+class TargetResolutionTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.home = Path(self.temporary.name).resolve()
+        self.k3s_config = self.home / "k3s.yaml"
+        self.k3s_available = False
+        for patcher in (mock.patch.object(installer.Path, "home", return_value=self.home),
+                        mock.patch.object(installer, "K3S_KUBECONFIG", self.k3s_config),
+                        mock.patch.dict(installer.os.environ, {"KUBECONFIG": ""}),
+                        mock.patch.object(installer.shutil, "which", side_effect=lambda name: "/usr/bin/true" if name != "k3s" or self.k3s_available else None)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def args(self, *flags):
+        return installer.parser().parse_args(["--local-access", *flags])
+
+    def user_config(self):
+        config = self.home / ".kube/config"
+        config.parent.mkdir(exist_ok=True)
+        config.write_text("synthetic private kubeconfig")
+        return config
+
+    def test_default_uses_current_context_and_pins_standard_config(self):
+        config = self.user_config()
+        with mock.patch.object(installer, "run", return_value=subprocess.CompletedProcess([], 0, "local-cluster\n", "")) as command:
+            result = installer.Installer(self.args())
+        command.assert_called_once_with(["/usr/bin/true", "--kubeconfig", str(config), "config", "current-context"], check=False)
+        self.assertEqual(result.context, "local-cluster")
+        self.assertEqual(result.kubectl[-2:], ["--context", "local-cluster"])
+        self.assertEqual(result.helm_target, ["--kubeconfig", str(config), "--kube-context", "local-cluster"])
+        self.assertFalse(result.args.local_k3s)
+
+    def test_explicit_context_overrides_current_context_and_k3s_fallback(self):
+        self.k3s_config.write_text("synthetic server config")
+        self.k3s_available = True
+        with mock.patch.object(installer, "run") as command:
+            result = installer.Installer(self.args("--context", "chosen-cluster"))
+        self.assertEqual(result.context, "chosen-cluster")
+        self.assertFalse(result.args.local_k3s)
+        command.assert_not_called()
+
+    def test_kubeconfig_alone_uses_its_current_context(self):
+        config = self.home / "custom cluster.yaml"
+        config.write_text("synthetic selected config")
+        with mock.patch.object(installer, "run", return_value=subprocess.CompletedProcess([], 0, "custom-context\n", "")) as command:
+            result = installer.Installer(self.args("--kubeconfig", str(config)))
+        command.assert_called_once_with(["/usr/bin/true", "--kubeconfig", str(config), "config", "current-context"], check=False)
+        self.assertEqual(result.context, "custom-context")
+
+    def test_current_context_name_is_preserved_exactly(self):
+        self.user_config()
+        with mock.patch.object(installer, "run", return_value=subprocess.CompletedProcess([], 0, " context with spaces \r\n", "")):
+            result = installer.Installer(self.args())
+        self.assertEqual(result.context, " context with spaces ")
+        self.assertEqual(result.kubectl[-1], " context with spaces ")
+
+    def test_merged_kubeconfig_environment_is_preserved_without_single_file_override(self):
+        paths = str(self.home / "missing") + os.pathsep + str(self.user_config())
+        with mock.patch.dict(installer.os.environ, {"KUBECONFIG": paths}), mock.patch.object(installer, "run", return_value=subprocess.CompletedProcess([], 0, "merged-context\n", "")) as command:
+            result = installer.Installer(self.args())
+        command.assert_called_once_with(["/usr/bin/true", "config", "current-context"], check=False)
+        self.assertNotIn("--kubeconfig", result.kubectl)
+        self.assertEqual(result.context, "merged-context")
+
+    def test_configured_missing_invalid_or_unreadable_context_never_falls_back(self):
+        self.k3s_available = True
+        self.k3s_config.write_text("synthetic server config")
+        for source in ("missing-environment-file", "empty-default-file", "unreadable-default-file", "broken-default-symlink"):
+            with self.subTest(source=source):
+                config = self.home / ".kube/config"
+                if config.exists() or config.is_symlink():
+                    config.unlink()
+                environment = {"KUBECONFIG": str(self.home / "missing")} if source == "missing-environment-file" else {"KUBECONFIG": ""}
+                if source != "missing-environment-file":
+                    config = self.user_config()
+                    if source == "empty-default-file":
+                        config.write_text("")
+                    elif source == "unreadable-default-file":
+                        config.chmod(0o000)
+                    else:
+                        config.unlink()
+                        config.symlink_to(self.home / "missing")
+                args = self.args()
+                with mock.patch.dict(installer.os.environ, environment), mock.patch.object(installer, "run", return_value=subprocess.CompletedProcess([], 1, "", "private diagnostic")):
+                    with self.assertRaisesRegex(installer.InstallError, "No usable current Kubernetes context"):
+                        installer.Installer(args)
+                self.assertFalse(args.local_k3s)
+
+    def test_absent_or_ambiguous_current_context_fails_without_mutation(self):
+        self.user_config()
+        for output in ("", "first\nsecond\n"):
+            with self.subTest(output=output), mock.patch.object(installer, "run", return_value=subprocess.CompletedProcess([], 0, output, "")) as command:
+                with self.assertRaisesRegex(installer.InstallError, "No usable current Kubernetes context"):
+                    installer.Installer(self.args())
+                self.assertEqual(command.call_count, 1)
+        with mock.patch.object(installer, "run") as command:
+            with self.assertRaisesRegex(installer.InstallError, "selected kubeconfig file"):
+                installer.Installer(self.args("--kubeconfig", str(self.home / "missing")))
+            command.assert_not_called()
+
+    def test_local_k3s_fallback_only_without_user_configuration(self):
+        self.k3s_available = True
+        self.k3s_config.write_text("synthetic server config")
+        with mock.patch.object(installer.os, "geteuid", return_value=0), mock.patch.object(installer, "run") as command:
+            result = installer.Installer(self.args())
+        self.assertTrue(result.args.local_k3s)
+        self.assertEqual(result.context, "default")
+        self.assertEqual(result.kubectl, ["/usr/bin/true", "kubectl", "--kubeconfig", str(self.k3s_config), "--context", "default"])
+        command.assert_not_called()
+        with mock.patch.object(installer.os, "geteuid", return_value=1000):
+            with self.assertRaisesRegex(installer.InstallError, "sudo"):
+                installer.Installer(self.args())
 
 
 if __name__ == "__main__":

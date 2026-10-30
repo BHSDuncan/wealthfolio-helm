@@ -1,6 +1,6 @@
 # HTTPS and certificate setup
 
-The installer asks how HTTPS should obtain its certificate. HTTPS encryption and browser trust are separate: a browser must trust the issuing CA and the certificate must cover your hostname.
+The installer asks how HTTPS should obtain its certificate. HTTPS encryption and browser trust are separate: a browser must trust the issuing CA and the certificate must cover your hostname. Application-install examples use the installer’s default local kubeconfig context. Use `sudo` for the standard on-host K3s fallback, or retain explicit target options from [installation](install.md); SSH execution is optional.
 
 | Choice | Works without an existing application certificate? | Trust and renewal |
 |---|---|---|
@@ -22,22 +22,22 @@ See [Traefik Ingress routing](https://doc.traefik.io/traefik/reference/routing-c
 For a fresh private-LAN installation without existing certificate infrastructure:
 
 ```bash
-./scripts/install.sh --ssh user@host --hostname wealthfolio.example.lan \
+./scripts/install.sh --hostname wealthfolio.example.lan \
   --scheme https --tls-mode private-ca
 ```
 
-The helper generates CA and leaf keys in the protected installation state, creates only its owned TLS Secret, and verifies the certificate chain and hostname. It prints the public CA file checksum and export location. The SSH wrapper copies only the public root certificate to local private state; `--export-ca "$WF_CA_FILE"` selects another output file outside this repository; set `WF_CA_FILE` to your chosen destination. Neither the CA key nor the leaf key is copied to your workstation.
+The helper generates CA and leaf keys in the protected installation state, creates only its owned TLS Secret, and verifies the certificate chain and hostname. It prints the public CA file checksum and export location. `--export-ca "$WF_CA_FILE"` selects an optional public certificate output file outside this repository; set `WF_CA_FILE` to your chosen destination. In optional SSH mode, the wrapper exports only the public root to your workstation; private keys stay on the K3s server.
 
 Verify the exported file against the printed public-CA file checksum before manually importing the root into the trust store of each device/browser you use. Certificate viewers use a different DER-based certificate fingerprint; compare that only with the separately labeled certificate fingerprint, not the PEM file checksum. No device trust store is changed automatically. Keep CA keys and application recovery keys backed up privately; never import or share a private-key file as a trust certificate.
 
 The initial leaf lasts one year; no renewal daemon is installed. Before its printed expiry, renew explicitly:
 
 ```bash
-./scripts/install.sh --ssh user@host --configure-access \
+./scripts/install.sh --configure-access \
   --scheme https --tls-mode private-ca --renew-certificate
 ```
 
-Renewal retains the CA and replaces the managed leaf certificate/key, so devices keep the same public trust root. The helper refuses TLS Secrets it does not recognize as its own. Private CA rotation/expiry requires a reviewed replacement and trust update; it is not automatic.
+Use the same target options as the original installation when renewing. Renewal retains the CA and replaces the managed leaf certificate/key, so devices keep the same public trust root. The helper refuses TLS Secrets it does not recognize as its own. Private CA rotation/expiry requires a reviewed replacement and trust update; it is not automatic.
 
 An existing organization CA can instead be used through a ready cert-manager CA Issuer. Select `cert-manager` with that issuer and obtain its public trust root from your organization; the installer does not retrieve its CA key.
 
@@ -45,14 +45,14 @@ An existing organization CA can instead be used through a ready cert-manager CA 
 
 With a compatible cert-manager operator and ready issuer already configured, select `--tls-mode cert-manager --issuer NAME --issuer-kind Issuer` or `ClusterIssuer`. A namespaced Issuer must be in the application namespace. The installer creates a namespaced Certificate using the selected hostname and a mode-specific TLS Secret, waits for readiness, and leaves the working application route unchanged if issuance fails. Existing unowned/conflicting Certificate or Secret resources are not overwritten.
 
-To bootstrap an operator and a public HTTP01 issuer explicitly:
+The separate cert-manager bootstrap requires an explicit target. To install the operator and a public HTTP01 issuer directly on a K3s server:
 
 ```bash
-./scripts/setup-cert-manager.sh --ssh user@host --namespace wealthfolio \
+sudo ./scripts/setup-cert-manager.sh --local-k3s --namespace wealthfolio \
   --issuer wealthfolio-http01 --email you@example.com --install-controller
 ```
 
-This is a separate opt-in global operation: `--install-controller` installs the pinned official cert-manager chart and its CRDs/RBAC. It refuses an existing operator rather than adopting or upgrading it. The locked bootstrap version is 1.21.3, supporting Kubernetes 1.33–1.36; another cluster version requires an operator installed through an appropriate upstream procedure. Without that flag the helper only creates a namespaced issuer using the existing operator. `--dry-run` with an explicit context prints the HTTP01 plan without contacting a cluster.
+For another cluster, replace `sudo` and `--local-k3s` with your normal execution user and `--context NAME` (plus `--kubeconfig PATH` if needed). This is a separate opt-in global operation: `--install-controller` installs the pinned official cert-manager chart and its CRDs/RBAC. It refuses an existing operator rather than adopting or upgrading it. The locked bootstrap version is 1.21.3, supporting Kubernetes 1.33–1.36; another cluster version requires an operator installed through an appropriate upstream procedure. Without that flag the helper only creates a namespaced issuer using the existing operator. `--dry-run` with an explicit context prints the HTTP01 plan without contacting a cluster.
 
 HTTP01 requires a real domain you control, DNS pointing to the ingress, and public port 80 reachability. The helper does not configure DNS, firewalls or a domain registrar. The production ACME service has issuance limits; review the prerequisites before requesting certificates. Then select the ready issuer in the application installer, or use `--configure-access` for an existing managed installation.
 

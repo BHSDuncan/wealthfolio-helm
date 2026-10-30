@@ -12,7 +12,7 @@
 
 ## Validation coverage
 
-Static checks cover Helm 3 and 4, invalid values, storage/security settings and strict Kubernetes 1.34/1.35/1.37 schemas. Official-image installation smoke tests and local HTTPS/private-CA checks have been exercised. Complete lifecycle coverage for the pinned official image and live cert-manager/ACME issuance have not been established. See [CONTRIBUTING](../CONTRIBUTING.md) for reproducible checks, and [image security](security.md#upstream-image) for the pinned image's limitations. Future Kubernetes versions require verification.
+Static checks cover Helm 3 and 4, invalid values, storage/security settings and strict Kubernetes 1.34/1.35/1.37 schemas. Official-image installation smoke tests on Kind and local HTTPS/private-CA checks have been exercised. The chart uses standard Kubernetes resources; other distributions and providers have not been individually verified. Complete lifecycle coverage for the pinned official image and live cert-manager/ACME issuance have not been established. See [CONTRIBUTING](../CONTRIBUTING.md) for reproducible checks, and [image security](security.md#upstream-image) for the pinned image's limitations. Future Kubernetes versions require verification.
 
 Default requests of 100m CPU/256Mi and a 1Gi memory limit are starting values, not measured sizing guarantees. Probes are shallow; readiness does not prove profile unlock, persistence or recovery. Recreate updates cause downtime. Forced deletion, partitions, a second release and overlapping maintenance can still create unsafe concurrent writers.
 
