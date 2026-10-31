@@ -14,8 +14,10 @@ K3s clusters use this same kubeconfig-based installation path. Configure a reada
 
 ## Validation coverage
 
-Static checks cover Helm 3 and 4, invalid values, storage/security settings and strict Kubernetes 1.34/1.35/1.37 schemas. Official-image installation smoke tests on Kind and local HTTPS/private-CA checks have been exercised. The chart uses standard Kubernetes resources; other distributions and providers have not been individually verified. Complete lifecycle coverage for the pinned official image and live cert-manager/ACME issuance have not been established. See [CONTRIBUTING](../CONTRIBUTING.md) for reproducible checks, and [image security](security.md#upstream-image) for the pinned image's limitations. Future Kubernetes versions require verification.
+Static checks cover Helm 3 and 4, invalid values, storage and security settings, and strict Kubernetes 1.34, 1.35 and 1.37 schemas. Installation smoke tests use the official image on kind; local HTTPS and private-CA setup have also been tested. See [CONTRIBUTING](../CONTRIBUTING.md) for reproducible checks.
 
-Default requests of 100m CPU/256Mi and a 1Gi memory limit are starting values, not measured sizing guarantees. Probes are shallow; readiness does not prove profile unlock, persistence or recovery. Recreate updates cause downtime. Forced deletion, partitions, a second release and overlapping maintenance can still create unsafe concurrent writers.
+Other Kubernetes distributions and providers have not been individually verified. Testing does not yet cover every lifecycle operation with the pinned image or live cert-manager/ACME issuance. Future Kubernetes versions also need verification. The pinned image has known [security limitations](security.md#upstream-image) that chart validation cannot resolve.
+
+The default requests of 100m CPU and 256Mi memory, with a 1Gi memory limit, are starting values rather than measured sizing guarantees. Readiness checks do not test profile unlock, persistence or recovery; confirm those by using the application. Recreate updates cause downtime. Forced deletion, network partitions, a second release or overlapping maintenance can still leave multiple writers using the data.
 
 Unsupported features include multiple replicas, rolling updates, HA, PostgreSQL/Redis, arbitrary sidecars, subpath rewrites and automatic database conversion or key rotation. Storage-driver permissions, node-local durability and volume reclaim policies remain operator responsibilities.

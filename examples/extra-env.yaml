@@ -1,4 +1,5 @@
-# An optional provider reference demonstrates integration; synthetic tests do not call it.
+# Optional logging and metal-price provider configuration.
+# Create the provider Secret separately; never put the API key in these values.
 auth:
   existingSecret: wealthfolio-auth
 extraEnv:

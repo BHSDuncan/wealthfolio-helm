@@ -1,16 +1,35 @@
 # Security and data protection
 
-The chart requires an existing namespace-local Secret with a stable 32-byte base64 master key and an Argon2id PHC password hash. It never renders a Secret or reads values via Helm `lookup`. Required `secretKeyRef` values are nonoptional. Helm validates reference names; kubelet validates existence and the application validates contents. Kubernetes Secret base64 is not encryption: restrict RBAC and use cluster secret-at-rest protections.
+## Credentials and the master key
 
-Keep literal single `$` characters in Argon2 hashes; Compose-style `$$` escaping breaks them. Never supply passwords, hashes, master keys or PATs in values, arguments, annotations, source or evidence. [Installation](install.md#prepare-credentials) provides a complete private credential-preparation procedure without the guided installer. A password hash update requires updating the Secret followed by `kubectl --context "$WF_CONTEXT" -n "$WF_NAMESPACE" rollout restart deployment/wealthfolio`; substitute the rendered Deployment name. Recreate orders pod replacement during Deployment upgrades; it does not make manual Pod deletion safe. Scale to zero and wait for all pods using the claim to terminate before maintenance.
+The chart requires an existing Secret in the release namespace. It must contain a stable master key encoded as base64 text that decodes to 32 bytes, and an Argon2id PHC password hash. The chart renders only required Secret references; it does not create a Secret or read its contents through Helm `lookup`. Helm validates reference names, Kubernetes checks that the Secret and entries exist, and the application validates their contents. Kubernetes Secret base64 is not encryption: restrict RBAC and use cluster secret-at-rest protections.
+
+Keep literal single `$` characters in Argon2 hashes; Compose-style `$$` escaping breaks them. Never put passwords, hashes, master keys or personal access tokens (PATs) in Helm values, command arguments, annotations, source or diagnostic reports. [Credential preparation](install.md#prepare-credentials) explains how to create the required files and Secret privately.
+
+To change the login password, update the password-hash entry in the existing Secret and restart the Deployment. Set `WF_CONTEXT` and `WF_NAMESPACE` to the verified installation target, then run:
+
+```bash
+kubectl --context "$WF_CONTEXT" --namespace "$WF_NAMESPACE" \
+  rollout restart deployment/wealthfolio
+```
+
+Replace `wealthfolio` if the Deployment has a different rendered name. The Recreate strategy stops the old pod before starting its replacement during a Deployment update. Manually deleting a pod does not provide that guarantee. For maintenance, scale to zero and wait for every pod using the claim to terminate.
 
 **Retain the original master key independently of the cluster.** It derives signing, vault and optional database keys. Password changes cannot recover it, and automatic rotation is unsupported. Losing it loses encrypted data. Changing it breaks existing vault/database access. Keep keys needed by old backups. Restoration can resurrect old PATs: review and revoke tokens after restoring.
 
-Database encryption is **false by default**. This leaves financial databases plaintext on storage while the credential vault stays encrypted. Select the fresh encrypted-install example before creating data if wanted. Changing the flag does not convert existing databases; mismatched encryption fails closed when the affected profile opens. Profiles initialize lazily, so shallow health/readiness can succeed even when an affected profile cannot open. Successful health is not proof of usable encryption policy. Offline conversion must stop all writers, retain user/image/key/paths, back up the full tree, check free space, and process every profile using upstream `db encrypt`/`db decrypt`. The chart never runs conversion during upgrades.
+## Database encryption
 
-The pod uses UID/GID/fsGroup 1000, RuntimeDefault seccomp, read-only root, no privilege escalation, all capabilities dropped and no service-account token. Only `/data` and memory-backed bounded `/tmp` are writable. No automatic privileged ownership repair or RBAC is created. fsGroup behavior depends on the volume driver. Legacy root-owned data requires a backed-up offline repair that preserves ACLs where possible.
+Database encryption is **disabled by default**. Financial databases are then plaintext on storage, while the credential vault remains encrypted. To encrypt a new installation's databases, use the [fresh encrypted-install example](../examples/encrypted-fresh-install.yaml) before creating data.
 
-Ingress access follows the existing controller and network configuration. Use TLS for networks you do not fully trust, with the exact HTTPS origin, trusted forwarded protocol and Secure cookies. The optional local-access mode uses loopback port-forwarding or an authenticated SSH tunnel instead; it must match the installation's stored origin and cookie policy. MCP stays off until deliberately enabled, uses its own scoped PATs and audit log, and should remain private. Audit records can contain operational identifiers.
+Changing `encryption.required` does not convert existing databases. If the setting and a database's format disagree, the application refuses to open that profile. Profiles initialize lazily, so health and readiness checks can succeed even when a profile cannot open; confirm actual profile access when validating encryption.
+
+Conversion is an offline operation: stop all writers, back up the complete data directory, check free space, and process every profile using upstream `db encrypt` or `db decrypt`. Retain the same operating-system user, image, original key and paths. The chart never runs conversion during upgrades. See [backup and recovery](backup-restore.md) before making changes.
+
+## Pod and network protection
+
+The pod runs as UID/GID 1000 with `fsGroup: 1000`, RuntimeDefault seccomp, a read-only root filesystem, no privilege escalation, all capabilities dropped and no mounted service-account token. Only `/data` and bounded, memory-backed `/tmp` are writable. The chart creates no privileged ownership-repair job or RBAC resources. Volume-driver support determines how `fsGroup` affects permissions. Existing root-owned data requires a backed-up offline repair that preserves access-control lists where possible.
+
+Ingress access follows the existing controller and network configuration. Use TLS on networks you do not fully trust, configure the exact HTTPS origin, preserve trusted forwarded-protocol information and enable Secure cookies. Private access uses loopback port-forwarding or an authenticated SSH tunnel; its browser origin and cookie policy must match the installation. [MCP](mcp.md) is disabled by default, uses its own scoped PATs and audit log, and should remain private. Audit records can contain operational identifiers.
 
 ## Upstream image
 

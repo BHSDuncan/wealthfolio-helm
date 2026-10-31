@@ -8,7 +8,7 @@ Public chart downloads require no account, token or registry login. Helm downloa
 
 Every published chart version is immutable. Chart-only changes receive a new chart version, just as application updates do. Application updates also require review of upstream migrations, image digest/platforms, compatibility and security. Chart metadata, values, schema, examples, tests and documentation describe the same reviewed release.
 
-The [contributor checks](../CONTRIBUTING.md) validate the chart and tooling. Affected integration checks and an installation from the packaged chart establish relevant runtime behavior; chart validation alone does not prove login, persistence or recovery.
+Run the [contributor checks](../CONTRIBUTING.md) for the chart and tooling, followed by the integration tests affected by a change. Test installation from the packaged chart as well. Static chart checks do not exercise login, persistence or recovery.
 
 ```bash
 scripts/check.sh
@@ -21,7 +21,7 @@ Packaging derives the archive name and version from `charts/wealthfolio/Chart.ya
 
 The manual **Owner-approved chart publication** workflow publishes an exact 40-character source commit with successful hosted **Chart validation** and a matching chart version. Both the original actor and the actor initiating a rerun must be the repository owner. Pull requests, pushes and tags do not publish automatically. Publication is also gated by the repository's `RELEASE_PUBLICATION_ENABLED` switch and the `chart-publication` environment.
 
-The workflow packages once, verifies the checksum, publishes that artifact, and compares a registry pullback byte-for-byte. An existing OCI version is accepted only when its downloaded bytes match the authorized artifact; a different artifact is refused. Retrying failed jobs preserves the successful packaging job's artifact, whereas a full rerun may produce different archive bytes. Existing chart versions and GitHub releases are never overwritten.
+The workflow packages the chart once, verifies its checksum, publishes it, then downloads it from the registry for a byte-for-byte comparison. An existing OCI version is accepted only if it matches that same archive; different contents are refused. Retrying failed jobs preserves the successful packaging job's archive, whereas a full rerun may produce different archive bytes. Existing chart versions and GitHub releases are never overwritten.
 
 Anonymous chart access is a required publication check. GHCR package visibility is independent of source-repository visibility; public source alone does not make a package public. Registry visibility is managed in package settings, outside the publication workflow.
 

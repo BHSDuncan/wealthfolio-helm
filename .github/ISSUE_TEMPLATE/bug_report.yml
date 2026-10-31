@@ -4,23 +4,23 @@ title: "[Bug]: "
 body:
   - type: markdown
     attributes:
-      value: "Do not include Secret values, hashes, tokens, kubeconfigs, private addresses, financial records, or raw browser traces. Use SECURITY.md for sensitive findings."
+      value: "Do not include Secret values, hashes, tokens, kubeconfigs, private addresses, financial records, or raw browser traces. Follow the [security policy](https://github.com/BHSDuncan/wealthfolio-helm/security/policy) for sensitive findings."
   - type: textarea
     id: versions
     attributes:
       label: Versions and environment
-      description: Chart/app/image digest, Helm, Kubernetes version and distribution, architecture, storage driver and ingress class (redacted)
+      description: Include the chart and application versions, image digest, Helm and Kubernetes versions, cluster distribution, architecture, storage driver and ingress class. Redact private details.
     validations:
       required: true
   - type: textarea
     id: reproduce
     attributes:
       label: Reproduction and expected result
-      description: Synthetic reproduction, nonsecret values/reference names, sanitized events and actual assertion
+      description: Explain how to reproduce the problem with synthetic data, what you expected, and what happened. Include only nonsecret configuration and sanitized events.
     validations:
       required: true
   - type: textarea
     id: evidence
     attributes:
       label: Checks and evidence
-      description: Tests passed/failed/blocked and sanitized diagnostics; no credential dumps
+      description: List checks you ran, their results and any sanitized diagnostics. Do not include credentials or Secret contents.

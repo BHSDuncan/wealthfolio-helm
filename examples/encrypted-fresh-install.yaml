@@ -1,4 +1,5 @@
-# Only for fresh empty storage, or after a verified stopped per-profile conversion.
+# Enable database encryption before creating data on fresh, empty storage.
+# Existing databases need a verified offline conversion for every profile first.
 auth:
   existingSecret: wealthfolio-auth
 encryption:
