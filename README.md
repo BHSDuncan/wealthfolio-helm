@@ -1,12 +1,22 @@
 # Wealthfolio Helm chart
 
-Unofficial community Helm chart for [Wealthfolio](https://wealthfolio.app/). Deploys one non-root instance with persistent storage, password authentication, and optional HTTPS Ingress and MCP access. Kubernetes **1.34+**; chart **0.1.0**, application **3.11.0**.
+Deploy [Wealthfolio](https://wealthfolio.app/) on Kubernetes with this unofficial community Helm chart, maintained independently of the application. It runs one non-root application instance with persistent storage, password authentication, and optional HTTPS Ingress and MCP access.
+
+Chart **0.1.0** deploys Wealthfolio **3.11.0** and requires Kubernetes **1.34+**.
 
 Standard Helm installation is the primary workflow. Chart **0.1.0** is available from **`oci://ghcr.io/bhsduncan/charts/wealthfolio`**; public downloads require no registry login. Versioning and publication details are in the [release guide](docs/releases.md). Before public exposure, review the pinned image’s [recorded security limitations](docs/security.md#upstream-image).
 
 ## Quick start with Helm
 
-You need Helm 3 or 4, kubectl, and a trusted kubeconfig for an existing Kubernetes **1.34+** cluster. The cluster needs durable filesystem storage writable by UID/GID 1000, a default StorageClass (or an explicit `persistence.storageClass`), permissions to create the release resources, and node access to the official application image on GHCR. No ingress controller, TLS certificate, Python, SSH or cert-manager is required by the chart.
+You need Helm 3 or 4, kubectl, and a trusted kubeconfig for an existing Kubernetes **1.34+** cluster. The cluster also needs:
+
+- Durable filesystem storage writable by UID/GID 1000, using a default StorageClass or an explicit `persistence.storageClass`.
+- Permission to create the application resources.
+- Node access to the official application image on GHCR.
+
+The chart itself needs no ingress controller, TLS certificate, Python, SSH or cert-manager. The standalone credential procedure below uses Python unless you supply credentials through an existing secret manager.
+
+### 1. Select the cluster
 
 Clone the repository for the standalone credential procedure and optional tooling, then select your verified context. Helm downloads the version-pinned chart from GHCR:
 
@@ -17,7 +27,11 @@ kubectl config get-contexts
 export WF_CONTEXT=your-context
 ```
 
-First [prepare the namespace and authentication Secret](docs/install.md#prepare-credentials). That complete procedure prompts for a password and uses a small isolated Python environment; you can instead supply the same Secret through your existing secret manager. Create `wealthfolio-auth` in namespace `wealthfolio` with both entries:
+Replace `your-context` with the verified context for your cluster.
+
+### 2. Prepare credentials
+
+Follow [the credential preparation procedure](docs/install.md#prepare-credentials), which prompts for a password and uses a small isolated Python environment, or supply the same Secret through your existing secret manager. Create `wealthfolio-auth` in namespace `wealthfolio` with both entries:
 
 | Secret key | Required content |
 |---|---|
@@ -25,6 +39,8 @@ First [prepare the namespace and authentication Secret](docs/install.md#prepare-
 | `WF_AUTH_PASSWORD_HASH` | Literal Argon2id PHC password hash with single `$` characters. |
 
 Credentials stay in the existing Kubernetes Secret, outside Helm values and release history. Never put a password, hash or master key in Helm arguments or values. Kubernetes Secret base64 encoding is not encryption; restrict access to the Secret.
+
+### 3. Create a values file
 
 Save the minimum nonsecret configuration as `values.yaml`:
 
@@ -34,6 +50,8 @@ auth:
 ```
 
 Only `auth.existingSecret` is required in values. Shell environment variables do **not** automatically become Helm values: exporting `WF_SECRET_KEY`, for example, neither creates a Secret nor configures the chart. Helm uses its defaults and the values files/explicit overrides you pass. Do not use credential overrides.
+
+### 4. Install and connect
 
 Review the rendered resources and install the published chart. The preview downloads the chart and renders locally using the Kubernetes 1.34 support floor; installation checks your actual cluster version:
 
@@ -48,7 +66,7 @@ kubectl --context "$WF_CONTEXT" --namespace wealthfolio \
   port-forward service/wealthfolio 8088:8088 --address 127.0.0.1
 ```
 
-Open **http://localhost:8088** and keep port-forward running while using it. The default Service is private ClusterIP; the shipped origins support this loopback workflow. Confirm login and persistent record readback before storing valuable data. The [installation guide](docs/install.md) covers credential preparation, customization and verification in detail.
+Open **http://localhost:8088** and keep port-forward running while using it. The default Service is private ClusterIP, and the default browser origins support this loopback workflow. Confirm that you can log in and read a saved record before storing valuable data. The [installation guide](docs/install.md) covers credential preparation, customization and verification in detail.
 
 ## Optional access and configuration
 
@@ -68,7 +86,7 @@ It uses an existing cluster and ingress controller, prompts for access settings 
 
 ## Data and lifecycle
 
-The chart retains the complete `/data` claim when uninstalled. **Back up the original master key separately**; losing it makes encrypted data unrecoverable. One replica and Recreate updates support the single-writer workload; updates cause downtime. Stop all writers before maintenance or recovery. Retained storage and healthy probes do not establish working backups.
+The chart retains the PVC containing the complete `/data` directory when uninstalled. **Back up the original master key separately**; losing it makes encrypted data unrecoverable. One replica and Recreate updates support the single-writer workload; updates cause downtime. Stop all writers before maintenance or recovery. Retained storage and healthy probes do not establish working backups.
 
 - [Backup and restore](docs/backup-restore.md) · [Upgrades and retained storage](docs/upgrading.md)
 - [MCP](docs/mcp.md) · [Troubleshooting](docs/troubleshooting.md)

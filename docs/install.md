@@ -4,7 +4,7 @@ Use standard Helm for a new installation. The chart consumes an existing authent
 
 ## Helm prerequisites
 
-- Helm 3 or 4 and kubectl, with a readable trusted kubeconfig for an existing Kubernetes 1.34+ cluster. Verify the selected context before any write.
+- Helm 3 or 4 and kubectl, with a kubeconfig you trust and can read for an existing Kubernetes 1.34+ cluster. Verify the selected context before making changes.
 - Permission to create a namespace (or an existing namespace), Secret, Deployment, Service and PVC, plus Ingress only if enabled.
 - Durable filesystem storage writable by UID/GID 1000. A default StorageClass serves the default 5Gi claim; otherwise choose `persistence.storageClass` or a prepared `persistence.existingClaim`.
 - Linux AMD64/ARM64 cluster nodes able to pull the pinned official image from GHCR. A container build tool is unnecessary.
@@ -33,7 +33,7 @@ The chart requires a namespace-local Secret named by `auth.existingSecret`. Its 
 
 An existing secret manager may supply this contract directly. Do not place passwords, hashes, master keys or PATs in Helm values, command arguments, annotations or source. The chart only renders Secret references, so credentials stay outside Helm release history. Kubernetes Secret `data` adds another base64 layer; `kubectl --from-file` below handles that layer. Base64 is not encryption: protect cluster Secret access and encryption at rest.
 
-For a standalone first-install preparation procedure, use Python 3.10+ with venv support and access to PyPI. Run the following from the source checkout in an interactive terminal. It creates a new private directory outside the repository, installs only checksum-locked hashing dependencies into an isolated environment, and prompts without echoing the password. `mkdir` deliberately fails if the directory already exists; choose a new path for a separate new installation, and preserve existing recovery files.
+To prepare credentials without the installer, use Python 3.10+ with venv support and access to PyPI. Run the following from the source checkout in an interactive terminal. It creates a private directory outside the repository, installs checksum-locked hashing dependencies into an isolated environment, and prompts for the password without echoing it. `mkdir` fails if the directory already exists; use a different path for a separate installation and preserve existing recovery files.
 
 ```bash
 umask 077
@@ -111,7 +111,7 @@ Open **http://localhost:8088** while forwarding runs. Ctrl-C closes forwarding a
 
 A local source installation remains supported: replace the OCI reference with `./charts/wealthfolio` from the repository root and omit `--version`. Check local chart configuration with `helm lint ./charts/wealthfolio --strict --values values.yaml`. A verified local chart archive also works in place of the OCI reference.
 
-Confirm login and persistent record readback before storing valuable data. One replica and Recreate updates preserve the single-writer deployment model, with downtime during upgrades. Stop every writer before maintenance or recovery. See [backup and restore](backup-restore.md), [upgrades](upgrading.md), [security](security.md), and [compatibility](compatibility.md).
+Sign in and confirm that saved records can be read before storing valuable data. The chart runs one replica and uses Recreate updates, stopping the old pod before starting its replacement. Upgrades therefore cause downtime. Stop every writer before maintenance or recovery. See [backup and recovery](backup-restore.md), [upgrades](upgrading.md), [security](security.md), and [compatibility](compatibility.md).
 
 ## Optional ingress and TLS
 
@@ -139,7 +139,7 @@ Replace the hostname and class with your actual DNS name and existing IngressCla
 
 Use the exact browser scheme, host and external port in `app.corsAllowOrigins`, and `auth.cookieSecure: "true"` for HTTPS. For an intentional HTTP ingress, omit `ingress.tls`, use the exact `http://` origin and `auth.cookieSecure: "false"`; use TLS on networks you do not fully trust. Preserve Host and trusted forwarded protocol at the proxy. Root `/` routing is required; subpath hosting is unsupported.
 
-**Cert-manager is optional and separate.** The chart never installs controllers, CRDs, issuers or Certificate resources. An existing certificate workflow is sufficient. If you choose cert-manager, install/manage its operator independently, configure an issuer, and request a certificate into the Secret referenced above. The repository's separately invoked bootstrap helper and guided certificate modes are described in [HTTPS setup](https.md); no normal application install installs cert-manager.
+**Cert-manager is optional and separate.** The chart does not install controllers, CRDs, issuers or Certificate resources. You can use your existing certificate workflow. If you choose cert-manager, manage its operator separately, configure an issuer, and request a certificate into the Secret referenced above. [HTTPS setup](https.md) covers the repository's separate bootstrap helper and guided certificate modes.
 
 Storage selection, fresh database encryption, MCP, IPv6, Service exposure and scheduling are optional values documented in the [chart reference](../charts/wealthfolio/README.md) and [examples](../examples/). Set `encryption.required: true` before creating databases if desired; the default is false, and changing the flag does not convert existing files. Keep the same original master key in either case.
 
@@ -196,7 +196,7 @@ Replace the SSH target and browser hostname. Add `--identity ~/.ssh/my-key` if n
 
 HTTPS configures the exact HTTPS origin and Secure cookies. Controller-default HTTPS can use a self-signed or mismatched certificate; it does not establish browser trust automatically. Private-CA mode generates certificates with manual trust/export and explicit leaf renewal; cert-manager mode uses a selected issuer. Follow [HTTPS setup](https.md) for the actual prerequisites and executable bootstrap helpers. Device trust and global controllers are never changed by a normal install.
 
-For an existing controller or reverse proxy serving HTTPS on a custom external port, add `--scheme https --tls-mode MODE --ingress-port 8443`. The installer records and prints the exact origin, such as `https://wealthfolio.example.lan:8443`; the TLS certificate still covers the hostname alone. This option does not change the controller, load balancer, firewall or Service listener: configure external forwarding separately. HTTP01 certificate validation still requires public port 80, regardless of the browser port. The application requires a root `/` route; URL subpaths are unsupported.
+If your controller or reverse proxy serves HTTPS on a custom external port, add `--scheme https --tls-mode MODE --ingress-port 8443`. The installer records and prints the exact origin, such as `https://wealthfolio.example.lan:8443`; the TLS certificate still covers the hostname alone. Configure the controller, load balancer and firewall forwarding separately; this option does not change their listeners. HTTP01 certificate validation still requires public port 80, regardless of the browser port. The application requires a root `/` route; URL subpaths are unsupported.
 
 For unattended operation, provide the scheme, certificate mode and its required inputs explicitly. A fresh unattended installation also needs an existing authentication Secret selected with `--existing-secret NAME` and noninteractive access to the selected cluster. SSH installation needs noninteractive SSH, and noninteractive sudo only if `--sudo` is selected. Missing required choices fail clearly; they never select HTTP implicitly.
 
@@ -245,6 +245,8 @@ When Helm is missing, setup downloads it into private state rather than installi
 
 Choose storage class, image overrides, pod listener and database-encryption policy at initial setup. Ordinary reruns use the recorded target and settings and do not upgrade the application. Keep the original context/kubeconfig, SSH account, namespace/release and state-directory options on subsequent commands.
 
-Use `scripts/install.sh --configure-access` for supported URL, scheme, ingress and certificate changes; use its `--renew-certificate` flow for installer-generated private-CA leaf renewal. Reconnect a local-access installation with `scripts/access.sh` and the same target options. Use the installer to retry an interrupted supported setup or access operation so its saved identities and pending state remain consistent. Do not edit `state.json` or `values.json`, change Helm values behind its back, replace its Secret/key/claim, or bypass its ownership/drift checks. The installer refuses unmanaged or unexpectedly changed releases; it does not provide general chart/application upgrades. Those require a separately reviewed maintenance operation following [upgrades](upgrading.md), with backups and the original key.
+Use `scripts/install.sh --configure-access` for supported URL, scheme, ingress and certificate changes, and its `--renew-certificate` flow to renew an installer-generated private-CA leaf certificate. Reconnect a local-access installation with `scripts/access.sh` and the same target options. Retry interrupted setup or access changes through the installer so its saved resource identities and pending state stay consistent.
+
+Do not edit `state.json` or `values.json`, change release values outside the installer, replace its Secret/key/claim, or bypass its ownership and drift checks. The installer refuses releases it does not manage and releases that have changed unexpectedly. It does not provide general chart or application upgrades; those require a separately reviewed maintenance operation following [upgrades](upgrading.md), with backups and the original key.
 
 Run `./scripts/install.sh --help` for local options, or `./scripts/install.sh --ssh user@host --help` for SSH options. Help does not contact a cluster.

@@ -6,7 +6,9 @@ Unofficial community Helm chart for [Wealthfolio](https://wealthfolio.app/), mai
 
 Standard Helm installation is the primary supported workflow. You need Helm 3 or 4, kubectl with a trusted kubeconfig for an existing Kubernetes 1.34+ cluster, permission to create the release resources, and durable filesystem storage writable by UID/GID 1000. Nodes must be able to pull the official image from GHCR. The chart does not install host packages, Python environments, SSH tooling, a cluster or shared controllers. No ingress controller or cert-manager is needed for loopback access.
 
-Versioned releases use `oci://ghcr.io/bhsduncan/charts/wealthfolio` with an explicit chart version; public downloads require no account or registry login. The OCI examples below apply when the selected version has been published. From a source checkout, `./charts/wealthfolio` is also a supported chart path; a verified local chart archive works too. See the [release guide](https://github.com/BHSDuncan/wealthfolio-helm/blob/main/docs/releases.md) for versioning and distribution details.
+Versioned releases use `oci://ghcr.io/bhsduncan/charts/wealthfolio` with an explicit chart version; public downloads require no account or registry login. You can also install from `./charts/wealthfolio` in a source checkout or from a verified local chart archive. See the [release guide](https://github.com/BHSDuncan/wealthfolio-helm/blob/main/docs/releases.md) for versioning and distribution details.
+
+### Prepare credentials
 
 Follow the complete [credential preparation procedure](https://github.com/BHSDuncan/wealthfolio-helm/blob/main/docs/install.md#prepare-credentials) or your secret manager to create namespace `wealthfolio` and a namespace-local `wealthfolio-auth` Secret first:
 
@@ -26,7 +28,9 @@ auth:
 
 Only `auth.existingSecret` is required in chart values. Durable default storage must be available; customize `persistence.storageClass` when necessary. Shell environment variables do **not** automatically become Helm values or create Secrets. Helm uses defaults and the values files/explicit overrides passed to it; never supply credential contents as overrides.
 
-For a published chart release, pin the chart version and use your verified context. These commands target this archive's chart version, `0.1.0`. The offline preview explicitly selects the Kubernetes 1.34 support floor; installation validates the actual cluster version:
+### Install and connect
+
+The commands below install chart `0.1.0`. Replace `your-context` with your verified context. The preview explicitly selects the Kubernetes 1.34 support floor; installation validates the actual cluster version:
 
 ```bash
 helm template wealthfolio oci://ghcr.io/bhsduncan/charts/wealthfolio \
@@ -46,7 +50,9 @@ kubectl --context your-context --namespace wealthfolio \
   port-forward service/wealthfolio 8088:8088 --address 127.0.0.1
 ```
 
-To use an existing Ingress controller instead, save these nonsecret values as `access.yaml`, replacing the hostname and class. Point DNS at that controller and provide an existing namespace-local TLS Secret trusted by your browser:
+### Optional ingress and TLS
+
+To use an existing Ingress controller, save these nonsecret values as `access.yaml`, replacing the hostname, class and TLS Secret name. Point DNS at that controller and provide a namespace-local TLS Secret with a certificate that covers your hostname and is trusted by your browser:
 
 ```yaml
 auth:
@@ -66,11 +72,15 @@ app:
     - https://wealthfolio.example.com
 ```
 
-Pass `--values access.yaml` to Helm. Ingress must preserve the hostname and trusted forwarded protocol. The chart creates a root `/` route; DNS, certificates, controller installation and subpath rewrites are outside its scope. Cert-manager is optional and must be installed separately. The chart never installs controllers, issuers or Certificate resources; an existing TLS Secret is sufficient. See the full [installation guide](https://github.com/BHSDuncan/wealthfolio-helm/blob/main/docs/install.md#optional-ingress-and-tls) for access choices.
+Pass both `--values values.yaml --values access.yaml` to Helm so your base configuration is retained. The controller must preserve the hostname and report the original request protocol through a trusted forwarded header. The application requires a root `/` route; subpath hosting is unsupported.
 
-The chart does not select a node address or install a network controller. Set `service.port` independently of the fixed application port 8088; an explicit `service.nodePort` must fit your cluster's configured range, which may differ from Kubernetes' default 30000–32767. Configure `app.corsAllowOrigins` with the exact browser scheme, host and external port when using a nonstandard ingress/LB port. Ingress hosts are DNS names; use a Service and an exact IP origin for direct IP access instead. Subpath hosting is unsupported by the packaged application.
+Manage DNS, certificates and ingress controllers separately. Cert-manager is optional; the chart never installs controllers, issuers or Certificate resources. An existing TLS Secret is sufficient. See the full [installation guide](https://github.com/BHSDuncan/wealthfolio-helm/blob/main/docs/install.md#optional-ingress-and-tls) for access choices.
 
-For IPv6 Pod networking, set `app.listenAddress: "::"`; the application then binds `[::]:8088`. The default remains the IPv4 wildcard `0.0.0.0`. Verify your CNI/controller and node dual-stack behavior before relying on both families. IPv6 literals in browser origins and MCP allowlists use brackets, for example `https://[2001:db8::1]:8443` and `[2001:db8::1]:8443`. The latter is a documentation address, not a usable deployment target. Local port-forwarding remains loopback-only.
+The chart does not select a node address or install a network controller. Set `service.port` independently of the fixed application port 8088; an explicit `service.nodePort` must fit your cluster's configured range, which may differ from Kubernetes' default 30000–32767. Configure `app.corsAllowOrigins` with the exact browser scheme, host and external port when using a nonstandard ingress/LB port. Ingress hosts are DNS names; use a Service and an exact IP origin for direct IP access instead.
+
+### IPv6
+
+For IPv6 Pod networking, set `app.listenAddress: "::"`; the application then binds `[::]:8088`. The default remains the IPv4 wildcard `0.0.0.0`. Verify your CNI, ingress controller and node dual-stack behavior before relying on both families. IPv6 literals in browser origins and MCP allowlists use brackets, for example `https://[2001:db8::1]:8443` and `[2001:db8::1]:8443`. Replace this documentation-only address with your own. Local port-forwarding remains loopback-only.
 
 ## Optional guided installer
 
@@ -78,15 +88,21 @@ The full repository also includes an interactive convenience installer for homel
 
 ## Storage, security and lifecycle
 
-Exactly one replica uses `Recreate`; upgrades cause downtime. This strategy stops old pods before new ones during Deployment upgrades. Manual Pod deletion, forced deletion and node failures can still overlap writers. Before maintenance, scale the Deployment to zero and wait until every pod using the claim has terminated. ReadWriteOnce alone does not prevent another writer on the same node. Never share a claim between live releases.
+### One writer and complete backups
+
+The Deployment runs exactly one replica and uses the `Recreate` strategy, so upgrades cause downtime. This strategy stops old pods before starting new ones during Deployment upgrades. Manual Pod deletion, forced deletion and node failures can still overlap writers. Before maintenance, scale the Deployment to zero and wait until every pod using the claim has terminated. ReadWriteOnce alone does not prevent another writer on the same node. Never share a claim between live releases.
 
 The whole `/data` tree is persistent: profile registry, every profile database and sidecar, encrypted vault, backups and addons. Back up the entire stopped tree, keep its original master key separately, and verify authenticated recovery into empty test storage before relying on a backup. Helm health checks are shallow; they do not establish persistence or recovery.
 
-**Database encryption is off by default.** Set `encryption.required: true` before creating data if you want encrypted databases. The vault uses the master key either way. Changing this flag does not convert existing files; offline per-profile conversion requires stopped writers, a complete backup and the original image/user/key. Never replace the master key as an upgrade or repair.
+**Database encryption is off by default.** Set `encryption.required: true` before creating data if you want encrypted databases. The vault uses the master key either way. Changing this flag does not convert existing files. Offline conversion must process every profile with all writers stopped, a complete backup and the original image, runtime user and key. Never replace the master key as an upgrade or repair.
+
+### Retained storage and upgrades
 
 A chart-created PVC is retained on ordinary uninstall through `helm.sh/resource-policy: keep`. Keep the namespace and external Secret. Reinstall with `persistence.existingClaim` set to the verified retained claim and the original key/encryption policy. With an existing claim, provisioning values are ignored. Namespace deletion, claim deletion, reclaim policies or local-path host loss can destroy data; retention is not backup. Do not shrink a claim or change its bound storage class/access mode.
 
 Before application upgrades, review [upstream releases](https://github.com/wealthfolio/wealthfolio/releases), image advisories and migration requirements, back up stopped data, and verify recovery. Helm rollback restores chart manifests, not databases or master keys. The pinned 3.11.0 image has a recorded Alpine 3.19 base-image security limitation; review the full repository's security guidance before public exposure. Chart hardening cannot fix upstream image vulnerabilities.
+
+### Runtime security and MCP
 
 The application runs as UID/GID 1000 with a read-only root filesystem, dropped capabilities, RuntimeDefault seccomp and no service-account token. Only persistent `/data` and bounded memory-backed `/tmp` are writable. Storage-driver permission behavior remains environment-specific; no privileged ownership repair is installed.
 

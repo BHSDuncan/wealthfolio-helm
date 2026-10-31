@@ -1,10 +1,12 @@
 # Optional MCP access
 
-MCP is disabled by default and uses the application's `/mcp` endpoint. It requires password authentication **and a scoped personal access token**; browser passwords and session cookies are not MCP bearer credentials. No AI-provider account or API key is required to enable the endpoint.
+Model Context Protocol (MCP) access is disabled by default. It lets an MCP client connect to Wealthfolio's `/mcp` endpoint using a scoped personal access token (PAT). The application's password authentication must remain enabled, but the client sends the PAT as its bearer credential, not a browser password or session cookie. No AI-provider account or API key is needed to enable the endpoint.
 
 ## Enable and connect
 
-Apply [the MCP example](../examples/mcp.yaml) alongside your existing authentication settings. Replace its example hosts with the intended browser/client hostnames and enable MCP. The allowlist matches HTTP Host values: names are case-insensitive, a hostname without a port accepts any port, and an explicit port must match. Never use `*`. Your Ingress must preserve Host and support streaming/SSE with a suitable request timeout.
+For a standard Helm installation, copy [the MCP example](../examples/mcp.yaml), replace its hosts with the intended client-facing hostnames, and pass it as an additional values file alongside your existing configuration. The example enables MCP. For an installer-managed installation, review the [configuration limits](install.md#configuration-while-using-the-guided-installer) before making Helm changes.
+
+The allowlist matches the HTTP `Host` header: names are case-insensitive, a hostname without a port accepts any port, and an explicit port must match. Wildcard `*` is not allowed. Your ingress controller or proxy must preserve Host and support streaming/server-sent events (SSE) with a suitable request timeout.
 
 In **Settings → AI Agent Access**, create a named, expiring token with only the required scopes. Start with `accounts:read`, store the once-visible raw token securely, and configure your MCP client to use it as a bearer token at your installation's `/mcp` URL. Revoke it when finished.
 

@@ -1,4 +1,4 @@
-# Verify cluster version, local-path availability, capacity and UID1000 writeability first.
+# Verify cluster support, local-path availability, capacity and UID/GID 1000 write access.
 # local-path is node-local; it does not protect against host loss.
 auth:
   existingSecret: wealthfolio-auth
