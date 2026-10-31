@@ -4,13 +4,13 @@ Chart and app versions are independent. Before every app change review upstream 
 
 ## Change access on a managed installation
 
-To change an existing installer-managed HTTP installation to HTTPS, opt in explicitly:
+For an existing installer-managed HTTP installation, opt in to HTTPS explicitly:
 
 ```bash
-./scripts/install.sh --ssh user@host --configure-access
+./scripts/install.sh --configure-access
 ```
 
-The installer reuses the saved hostname and asks for HTTP/HTTPS and the certificate path/inputs when needed. Review the old/new URLs and confirm the change before it is applied. Supply `--scheme https --tls-mode MODE` and its inputs to preselect them; see [HTTPS setup](https.md). Use the same namespace, release and state-directory options as the original installation. Ordinary reruns do not ask again or alter the saved network settings.
+The installer reuses the saved hostname and asks for HTTP/HTTPS and the certificate path/inputs when needed. Review the old/new URLs and confirm the change before it is applied. Supply `--scheme https --tls-mode MODE` and its inputs to preselect them; see [HTTPS setup](https.md). Use the same target, namespace, release and state-directory options as the original installation. The default target is your current context from the configured kubeconfig. Keep any original `--context`, `--kubeconfig`, `--ssh` and remote `--sudo` options so the same execution account and cluster are selected. Ordinary reruns do not ask again or alter the saved network settings.
 
 This path verifies the managed release, Secret and claim identities and applies only network settings, preserving the image, master key, data claim and database-encryption policy. It refuses unmanaged or drifted installations. Expect Recreate downtime. DNS and the selected certificate path must match the hostname. No application data reset or master-key rotation occurs; private-CA/cert-manager modes create only their explicitly selected certificate resources. After switching to HTTPS, sign out and back in at the HTTPS URL to replace any earlier HTTP session cookie.
 

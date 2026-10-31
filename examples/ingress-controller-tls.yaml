@@ -1,4 +1,5 @@
 # Use the existing controller's HTTPS certificate; verify its hostname and trust.
+# Replace className with your existing ingress class; this is an explicit example choice.
 auth:
   existingSecret: wealthfolio-auth
   cookieSecure: "true"

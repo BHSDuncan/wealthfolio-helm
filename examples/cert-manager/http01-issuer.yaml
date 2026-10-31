@@ -1,5 +1,6 @@
 # Reference template only. Prefer scripts/setup-cert-manager.sh, which substitutes
 # your namespace, issuer, email and ingress class without editing this file.
+# Replace ingressClassName with the controller that will serve your challenge.
 # HTTP01 requires an owned public DNS name and public port 80 reachability.
 apiVersion: cert-manager.io/v1
 kind: Issuer

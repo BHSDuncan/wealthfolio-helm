@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Called only by an owner-run local K3s installation when ensurepip is absent.
+# Prepare Python venv support during a privileged installation when needed.
 set -euo pipefail
 set +x
 if python3 -c 'import ensurepip' >/dev/null 2>&1; then

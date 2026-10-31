@@ -263,9 +263,44 @@ def hash_password(password: str, state: Path, *, allow_system_bootstrap=False):
     return encoded
 
 
+def resolve_kubernetes_target(args):
+    """Resolve local client settings without creating state or contacting the API."""
+    if args.context is not None and not args.context.strip():
+        raise InstallError("The selected Kubernetes context must not be empty.")
+    config_path = args.kubeconfig
+    if config_path is not None:
+        if not config_path or not Path(config_path).expanduser().is_file():
+            raise InstallError("The selected kubeconfig file is missing or unreadable; no other target was selected.")
+    elif os.environ.get("KUBECONFIG"):
+        if not any(Path(name).is_file() for name in os.environ["KUBECONFIG"].split(os.pathsep) if name):
+            raise InstallError("KUBECONFIG does not select an available configuration file; no other target was selected.")
+    else:
+        config_path = str(Path.home() / ".kube/config")
+        if not Path(config_path).is_file():
+            raise InstallError("No usable default kubeconfig file was found. Configure kubectl or select --kubeconfig FILE; no other target was selected.")
+    binary = shutil.which("kubectl") or str(ROOT / ".tools/bin/kubectl")
+    if not Path(binary).is_file():
+        raise InstallError("kubectl is required on the installation machine.")
+    kubectl, helm_target = [binary], []
+    if config_path:
+        config = str(Path(config_path).expanduser().absolute())
+        kubectl += ["--kubeconfig", config]
+        helm_target += ["--kubeconfig", config]
+    context = args.context
+    if not context:
+        result = run(kubectl + ["config", "current-context"], check=False)
+        context = result.stdout.removesuffix("\r\n") if result.stdout.endswith("\r\n") else result.stdout.removesuffix("\n")
+        if result.returncode or not context.strip() or "\n" in context or "\r" in context:
+            raise InstallError("No usable current Kubernetes context was found. Configure kubectl or select --context NAME/--kubeconfig FILE; no other target was selected.")
+    kubectl += ["--context", context]
+    helm_target += ["--kube-context", context]
+    return kubectl, helm_target, context
+
+
 class Installer:
     def __init__(self, args):
         self.args = args
+        validate_access(args)
         owner_name = args.owner_user or os.environ.get("SUDO_USER") or pwd.getpwuid(os.getuid()).pw_name
         try:
             self.owner = pwd.getpwnam(owner_name)
@@ -274,37 +309,12 @@ class Installer:
         if os.geteuid() != 0 and self.owner.pw_uid != os.getuid():
             raise InstallError("Only root can select a different recovery-file owner.")
         self.uid, self.gid = self.owner.pw_uid, self.owner.pw_gid
-        if args.local_k3s:
-            if os.geteuid() != 0:
-                raise InstallError("Run local K3s installation with sudo so its kubeconfig can be used.")
-            binary = shutil.which("k3s")
-            config = Path(args.kubeconfig or "/etc/rancher/k3s/k3s.yaml").expanduser().absolute()
-            if not binary or not config.is_file():
-                raise InstallError("This machine is not a configured K3s server.")
-            self.context = args.context or "default"
-            self.kubectl = [binary, "kubectl", "--kubeconfig", str(config), "--context", self.context]
-            self.helm_target = ["--kubeconfig", str(config), "--kube-context", self.context]
-        else:
-            if not args.context:
-                raise InstallError("Select your target with --context NAME or --local-k3s. The current context is never selected automatically.")
-            binary = shutil.which("kubectl") or str(ROOT / ".tools/bin/kubectl")
-            if not Path(binary).is_file():
-                raise InstallError("kubectl is required for an explicit Kubernetes context.")
-            self.kubectl = [binary]
-            self.helm_target = []
-            if args.kubeconfig:
-                config = str(Path(args.kubeconfig).expanduser().absolute())
-                self.kubectl += ["--kubeconfig", config]
-                self.helm_target += ["--kubeconfig", config]
-            self.kubectl += ["--context", args.context]
-            self.helm_target += ["--kube-context", args.context]
-            self.context = args.context
+        self.kubectl, self.helm_target, self.context = resolve_kubernetes_target(args)
         self.namespace = args.namespace
         self.release = args.release
         self.secret = args.existing_secret or self.release + "-auth"
         self.state = None
         self.record = None
-        validate_access(args)
 
     def kube(self, *arguments, data=None, check=True, namespaced=True):
         command = self.kubectl + (["--namespace", self.namespace] if namespaced else []) + list(arguments)
@@ -351,7 +361,7 @@ class Installer:
         origin = scheme + "://" + self.args.hostname
         if self.args.ingress_port is not None:
             origin += ":" + str(self.args.ingress_port)
-        ingress = {"enabled": True, "className": self.args.ingress_class if self.args.ingress_class is not None else ("traefik" if self.args.local_k3s else ""), "hosts": [self.args.hostname], "tls": []}
+        ingress = {"enabled": True, "className": self.args.ingress_class if self.args.ingress_class is not None else "", "hosts": [self.args.hostname], "tls": []}
         if scheme == "https":
             tls = {"hosts": [self.args.hostname]}
             if self.args.tls_mode != "controller":
@@ -643,15 +653,15 @@ class Installer:
         match = re.match(r"v?(\d+)\.(\d+)", version)
         if not match or tuple(map(int, match.groups())) < (1, 34):
             raise InstallError("Kubernetes 1.34 or newer is required.")
-        if self.args.local_k3s and "+k3s" not in version:
-            raise InstallError("The selected server is not a K3s server.")
         endpoint = self.kube("config", "view", "--minify", "-o", "jsonpath={.clusters[0].cluster.server}", namespaced=False).stdout.strip()
         if not endpoint:
-            raise InstallError("The explicitly selected context has no API server.")
+            raise InstallError("The selected Kubernetes context has no API server.")
         identity = hashlib.sha256((self.context + "\n" + endpoint).encode()).hexdigest()[:16]
+        parsed_endpoint = urllib.parse.urlsplit(endpoint)
+        display_endpoint = urllib.parse.urlunsplit((parsed_endpoint.scheme, parsed_endpoint.netloc.rsplit("@", 1)[-1], parsed_endpoint.path, "", ""))
+        print(f"Target: context {self.context}, API {display_endpoint}; Kubernetes {version}; namespace/release {self.namespace}/{self.release}.")
         default_state = Path(self.owner.pw_dir) / ".local/share/wealthfolio" / identity / self.namespace / self.release
         self.state = secure_directory(Path(self.args.state_dir) if self.args.state_dir else default_state, self.uid, self.gid)
-        print(f"Target: {'local K3s' if self.args.local_k3s else self.context}, Kubernetes {version}; namespace/release {self.namespace}/{self.release}.")
         lock_path = self.state / ".install.lock"
         self.lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         if os.geteuid() == 0:
@@ -814,7 +824,7 @@ class Installer:
                 confirmation = getpass.getpass("Confirm password: ")
                 if len(password) < 12 or password != confirmation:
                     raise InstallError("Passwords must match and contain at least 12 characters. Rerun to try again.")
-                password_hash = hash_password(password, self.state, allow_system_bootstrap=self.args.local_k3s)
+                password_hash = hash_password(password, self.state, allow_system_bootstrap=os.geteuid() == 0)
                 del password, confirmation
                 if key_file.exists():
                     private_file(key_file, self.uid)
@@ -876,9 +886,8 @@ class Installer:
 
 def parser():
     result = argparse.ArgumentParser(description=__doc__)
-    result.add_argument("--context", help="Explicit Kubernetes context; with --local-k3s defaults to default")
-    result.add_argument("--local-k3s", action="store_true", help="Use this K3s server (run with sudo); supports explicit --context/--kubeconfig")
-    result.add_argument("--kubeconfig", help="Explicit kubeconfig; local K3s defaults to /etc/rancher/k3s/k3s.yaml")
+    result.add_argument("--context", help="Override the local kubeconfig's current context")
+    result.add_argument("--kubeconfig", help="Select a kubeconfig file instead of KUBECONFIG or ~/.kube/config")
     result.add_argument("--namespace", default="wealthfolio")
     result.add_argument("--release", default="wealthfolio")
     result.add_argument("--owner-user", help="Local owner of private recovery files; defaults to sudo's original user")
@@ -892,7 +901,7 @@ def parser():
     result.add_argument("--encrypted", action="store_true", help="Require encrypted profile databases on this fresh installation")
     result.add_argument("--hostname", help="DNS hostname for normal root-path Ingress access")
     result.add_argument("--scheme", choices=("http", "https"), help="Ingress URL scheme; first-time interactive installs ask when omitted")
-    result.add_argument("--ingress-class", help="Existing Ingress class; local K3s defaults to traefik")
+    result.add_argument("--ingress-class", help="Existing Ingress class; omitted uses the cluster default")
     result.add_argument("--ingress-port", type=int, help="Externally reachable Ingress port when it differs from the scheme default")
     result.add_argument("--tls-mode", choices=("controller", "secret", "cert-manager", "private-ca"), help="HTTPS certificate source; interactive setup offers these choices")
     result.add_argument("--tls-secret", help="Existing TLS Secret in secret mode, or optional output name for issued certificates")

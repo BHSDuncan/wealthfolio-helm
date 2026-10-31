@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the local K3s installer over a verified SSH connection."""
+"""Run the Kubernetes installer over a verified SSH connection."""
 
 from __future__ import annotations
 
@@ -91,9 +91,9 @@ print(str(payload))
 PROBE_REMOTE = r'''
 import importlib.util,json,os,platform,pwd,sys,tempfile
 if sys.version_info<(3,10) or platform.system()!='Linux':
-    raise SystemExit('The K3s node needs Linux and Python 3.10 or newer')
+    raise SystemExit('The remote installation host needs Linux and Python 3.10 or newer')
 if importlib.util.find_spec('venv') is None:
-    raise SystemExit('Install the Python venv package on the K3s node first')
+    raise SystemExit('Install the Python venv package on the remote installation host first')
 account=pwd.getpwuid(os.getuid())
 directory=tempfile.mkdtemp(prefix='wealthfolio-install-')
 os.chmod(directory,0o700)
@@ -189,7 +189,7 @@ def validate_args(args: argparse.Namespace) -> None:
     if args.state_dir and not args.state_dir.startswith("/"):
         raise ValueError("Remote state directory must be an absolute path")
     if args.kubeconfig and not Path(args.kubeconfig).is_absolute():
-        raise ValueError("Remote kubeconfig must be an absolute path on the K3s host")
+        raise ValueError("Remote kubeconfig must be an absolute path on the installation host")
     if bool(args.image_repository) != bool(args.image_digest):
         raise ValueError("Custom images require both --image-repository and --image-digest")
     if args.ingress_port is not None and not 1 <= args.ingress_port <= 65535:
@@ -275,9 +275,9 @@ def validate_args(args: argparse.Namespace) -> None:
 
 
 def remote_command(payload: str, owner: str, args: argparse.Namespace, *, interactive: bool = True) -> str:
-    sudo = ["sudo", *([] if interactive else ["-n"]), "--"]
+    elevation = ["sudo", "-H", *([] if interactive else ["-n"]), "--", "env", "-u", "KUBECONFIG"] if args.sudo else []
     if args.setup_cert_manager:
-        setup = ["bash", f"{payload}/scripts/setup-cert-manager.sh", "--local-k3s",
+        setup = ["bash", f"{payload}/scripts/setup-cert-manager.sh",
                  "--namespace", args.namespace, "--issuer", args.issuer]
         if args.email:
             setup += ["--email", args.email]
@@ -292,9 +292,9 @@ def remote_command(payload: str, owner: str, args: argparse.Namespace, *, intera
             setup += ["--install-controller"]
         if args.dry_run:
             setup += ["--dry-run"]
-        return shlex.join([*sudo, *setup])
+        return shlex.join([*elevation, *setup])
     installer = f"{payload}/scripts/install.sh"
-    common = ["bash", installer, "--local-k3s", "--owner-user", owner,
+    common = ["bash", installer, "--owner-user", owner,
               "--namespace", args.namespace, "--release", args.release, "--port", str(args.port)]
     if args.state_dir:
         common += ["--state-dir", args.state_dir]
@@ -317,23 +317,25 @@ def remote_command(payload: str, owner: str, args: argparse.Namespace, *, intera
         common += ["--access-only"]
     elif args.local_access and not args.no_access:
         common += ["--access"]
-    # One sudo invocation covers installation and optional private access. No
-    # password, key, hash, or kubeconfig contents appear in its arguments.
-    return shlex.join([*sudo, *common])
+    # Optional elevation selects root's HOME/configuration; explicit target
+    # arguments still win. Recovery files remain owned by the SSH account.
+    # Passwords, keys, hashes and kubeconfig contents never appear in arguments.
+    return shlex.join([*elevation, *common])
 
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
-    result.add_argument("--ssh", required=True, metavar="USER@HOST", help="K3s node or existing SSH alias")
+    result.add_argument("--ssh", required=True, metavar="USER@HOST", help="Installation host or existing SSH alias")
+    result.add_argument("--sudo", action="store_true", help="Explicitly execute as root, using root's kubeconfig unless --kubeconfig is supplied")
     result.add_argument("--identity", help="SSH identity filename (contents are never read by this script)")
-    result.add_argument("--context", help="K3s context on the remote host (default: default)")
-    result.add_argument("--kubeconfig", help="Absolute kubeconfig path on the remote K3s host; never copied locally")
+    result.add_argument("--context", help="Override the effective remote account's current Kubernetes context")
+    result.add_argument("--kubeconfig", help="Absolute kubeconfig path on the remote host; never copied locally")
     result.add_argument("--namespace", default="wealthfolio")
     result.add_argument("--release", default="wealthfolio")
     mode = result.add_mutually_exclusive_group()
     mode.add_argument("--hostname", help="LAN DNS hostname for the root Ingress, without scheme or port")
     mode.add_argument("--local-access", action="store_true", help="use a private localhost connection instead of Ingress")
-    result.add_argument("--ingress-class", help="existing Ingress class (K3s default: traefik)")
+    result.add_argument("--ingress-class", help="Existing Ingress class; omitted uses the cluster default")
     result.add_argument("--ingress-port", type=int, help="externally reachable Ingress port if not the scheme default")
     result.add_argument("--tls-secret", help="existing namespace-local TLS Secret for HTTPS")
     result.add_argument("--tls-mode", choices=("controller", "secret", "cert-manager", "private-ca"), help="HTTPS certificate source; interactive installs ask when omitted")
@@ -349,7 +351,7 @@ def parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--dry-run", action="store_true", help="show setup plan without installing the operator or Issuer")
     result.add_argument("--scheme", choices=("http", "https"), help="LAN URL scheme; first installs ask when omitted, a TLS Secret selects HTTPS")
     result.add_argument("--port", type=int, default=8088, help="localhost browser port, default 8088")
-    result.add_argument("--state-dir", help="private absolute recovery directory on the K3s node")
+    result.add_argument("--state-dir", help="Private absolute recovery directory on the remote host")
     result.add_argument("--configure-access", action="store_true", help="explicitly update access settings of this managed installation")
     result.add_argument("--encrypted", action="store_true", help="require encrypted databases on this fresh installation")
     result.add_argument("--storage-class", help="StorageClass for the new retained claim")

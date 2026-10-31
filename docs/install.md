@@ -1,30 +1,49 @@
 # Installation
 
-## Remote K3s with Ingress
+## Install locally
 
-Use an SSH-accessible K3s host with Kubernetes 1.34 or later, its existing Traefik ingress controller, Python 3.10+, sudo access, durable default storage, and access to GHCR. Use a macOS or Linux workstation with Python 3.10+ and OpenSSH. AMD64 and ARM64 hosts have checksum-locked Helm downloads when Helm is absent. The installation host also needs HTTPS access to `get.helm.sh` for that download and to PyPI for the password-hashing dependencies. The installer uses the official image; Docker and local image builds are not needed.
+Use a macOS or Linux machine with Python 3.10+, kubectl and a trusted kubeconfig for a Kubernetes 1.34+ cluster. The cluster needs durable default storage, permission to create the application resources, and access to GHCR. AMD64 and ARM64 hosts have checksum-locked Helm downloads when Helm is absent. The installation host also needs HTTPS access to `get.helm.sh` for that download and to PyPI for the password-hashing dependencies. The installer uses the official image; Docker and local image builds are not needed.
 
-Choose the browser hostname and point its DNS record to the address serving your K3s ingress. Then run from the repository checkout:
+Choose the browser hostname and point its DNS record to your existing ingress controller. From the repository checkout, run:
+
+```bash
+./scripts/install.sh --hostname wealthfolio.example.lan
+```
+
+Replace the example hostname with your browser hostname, without a scheme or path. Local execution is the default; no local-mode flag is required. The installer uses your kubeconfig's current context and prints that context, API endpoint and namespace/release before making changes. A current context can refer to a cluster on this machine or elsewhere; select the intended one with kubectl or override it with `--context NAME`.
+
+Provide a readable kubeconfig through `--kubeconfig PATH`, `KUBECONFIG` or `~/.kube/config`; both kubectl and Helm use it. A vendor wrapper’s private configuration alone is insufficient if Helm cannot access that configuration. Missing or invalid configuration stops installation with a setup error; configure cluster access before retrying.
+
+Namespace and release default to `wealthfolio`. Ingress and new storage use the cluster's configured defaults; select existing resources with `--ingress-class NAME` or `--storage-class NAME` when needed.
+
+On a first interactive install, the installer asks whether to use HTTP or HTTPS. If you choose HTTPS, it offers the controller default, an existing Secret, cert-manager, or a generated private CA. It then prepares Helm and the namespace, generates a stable master key, and asks for a login password. A missing prerequisite stops the selected path; the installer does not silently fall back to HTTP. When explicitly run as root on Ubuntu/Debian, it can install missing `python3-venv` support without upgrading the operating system. Otherwise, prepare the required Python environment before retrying. Protected recovery material stays in the installing user's home directory; the printed location includes the original master key. Keep an independent copy. Credentials do not enter command arguments or Helm values.
+
+When ready, open the printed hostname URL. Installation exits normally and you can close the terminal. DNS, the ingress controller and network access to its HTTP/HTTPS ports must already work. Only an explicitly selected certificate-provisioning mode creates certificate resources.
+
+The chart uses standard Kubernetes resources and cluster-managed storage. Verify support for its UID/GID 1000 pod and filesystem PVC; see [compatibility](compatibility.md) for requirements and tested coverage.
+
+## Optional: installation over SSH
+
+Use a macOS or Linux workstation with Python 3.10+ and OpenSSH. The remote Linux host needs Python 3.10+, kubectl, a readable kubeconfig and the same cluster/network prerequisites as a local installation:
 
 ```bash
 ./scripts/install.sh --ssh user@host --hostname wealthfolio.example.lan
 ```
 
-Replace the SSH target and example hostname. Use a hostname without a scheme or path. Add `--identity ~/.ssh/my-key` when needed. Defaults are namespace `wealthfolio`, release `wealthfolio`, and K3s ingress class `traefik`; `--namespace`, `--release`, and `--ingress-class` override them.
+Replace the SSH target and browser hostname. Add `--identity ~/.ssh/my-key` if needed. Commands use the SSH account’s kubeconfig/current context by default. Optional `--sudo` explicitly runs as root and uses root’s kubeconfig unless `--kubeconfig` selects another file. `--context` selects a context within the effective kubeconfig. A remote kubeconfig path must be absolute on that host; its contents are never copied to your workstation. Recovery files remain owned by the SSH account on the remote host. Hostname-based browser access continues after the installer disconnects.
 
-On a first interactive install, the installer asks whether to use HTTP or HTTPS. If you choose HTTPS, it offers the controller default, an existing Secret, cert-manager, or a generated private CA. It then prepares Helm and the namespace, generates a stable master key, and asks for a login password. A missing prerequisite stops the selected path; the installer does not silently fall back to HTTP. On Ubuntu/Debian it can install `python3-venv` when missing, without upgrading the operating system. Protected recovery material stays in the installing user's home directory; the printed location includes the original master key. Keep an independent copy. Credentials do not enter command arguments or Helm values.
-
-When ready, open the printed hostname URL. Installation exits normally; browser access does not depend on an SSH session. DNS, the ingress controller and network access to its HTTP/HTTPS ports must already work. Only an explicitly selected certificate-provisioning mode creates certificate resources.
-
-## Ingress options
+## Installation options
 
 | Option | Setting |
 |---|---|
+| `--context NAME` | Optional override for the current kubeconfig context |
+| `--kubeconfig PATH` | Optional readable kubeconfig file; uses its current context unless overridden |
 | `--hostname NAME` | Browser hostname, without scheme or path; configure its DNS record separately |
 | `--scheme http` or `--scheme https` | Explicit scheme; omitted choices are asked on a first interactive install |
 | `--tls-mode MODE` | `controller`, `secret`, `cert-manager`, or `private-ca`; see [HTTPS setup](https.md) |
 | `--tls-secret NAME` | Existing TLS Secret, or an explicit owned output name for a provisioning mode |
-| `--ingress-class NAME` | Existing ingress class; defaults to Traefik on K3s or the cluster default elsewhere |
+| `--ingress-class NAME` | Existing ingress class; omitted uses the cluster default |
+| `--storage-class NAME` | Existing StorageClass; omitted uses the cluster default |
 | `--ingress-port NUMBER` | External browser port, such as `8443`; omitted uses the scheme's standard port |
 | `--namespace NAME` / `--release NAME` | Installation identity; both default to `wealthfolio` |
 
@@ -32,37 +51,31 @@ HTTPS configures the exact HTTPS origin and Secure cookies. Controller-default H
 
 For an existing controller or reverse proxy serving HTTPS on a custom external port, add `--scheme https --tls-mode MODE --ingress-port 8443`. The installer records and prints the exact origin, such as `https://wealthfolio.example.lan:8443`; the TLS certificate still covers the hostname alone. This option does not change the controller, load balancer, firewall or Service listener: configure external forwarding separately. HTTP01 certificate validation still requires public port 80, regardless of the browser port. The application requires a root `/` route; URL subpaths are unsupported.
 
-For unattended operation, provide the scheme, certificate mode and its required inputs explicitly. A fresh unattended installation also needs an existing authentication Secret selected with `--existing-secret NAME`, plus noninteractive SSH/sudo access. Missing required choices fail clearly; they never select HTTP implicitly.
+For unattended operation, provide the scheme, certificate mode and its required inputs explicitly. A fresh unattended installation also needs an existing authentication Secret selected with `--existing-secret NAME` and noninteractive access to the selected cluster. SSH installation needs noninteractive SSH, and noninteractive sudo only if `--sudo` is selected. Missing required choices fail clearly; they never select HTTP implicitly.
 
-An installed release keeps its saved scheme on ordinary reruns. To change an existing managed HTTP installation, run `./scripts/install.sh --ssh user@host --configure-access` and choose HTTPS and its certificate path. The saved hostname is reused when omitted; review and confirm the proposed URL change. This explicit network-only update preserves credentials, image, storage and encryption settings; see [upgrades](upgrading.md).
+An installed release keeps its saved scheme on ordinary reruns. Run `./scripts/install.sh --configure-access` using the same kubeconfig/current context to choose HTTPS and its certificate path. If the original installation used explicit target options or SSH, keep those options and add `--configure-access`. The saved hostname is reused when omitted; review and confirm the proposed URL change. This explicit network-only update preserves credentials, image, storage and encryption settings; see [upgrades](upgrading.md).
 
 ## Optional private localhost access
 
-If Ingress is unavailable, choose local access instead of a hostname:
+If Ingress is unavailable, choose private loopback access instead of a hostname:
 
 ```bash
-./scripts/install.sh --ssh user@host --local-access
+./scripts/install.sh --local-access
 ```
 
-Open **http://localhost:8088** when ready and keep the command running. Ctrl-C closes the private connection while leaving the application installed. Reconnect later with:
+Open **http://localhost:8088** in a browser on the machine running this command and keep it running. If it runs on a headless server, use a kubeconfig from your browser machine or the optional SSH tunnel below. Ctrl-C closes the private connection while leaving the application installed. Reconnect later with the same kubeconfig/current context:
 
 ```bash
-./scripts/access.sh --ssh user@host
+./scripts/access.sh
 ```
 
-This helper reconnects an installation originally configured for local access. It does not silently change an Ingress installation's origins or cookie policy. `--hostname` and `--local-access` are mutually exclusive; switching an existing installation requires an explicit access reconfiguration or Helm upgrade. Use the same namespace, release, state-directory and port options when reconnecting. `--port` selects another local port if needed.
+Keep the same target options when reconnecting. For optional SSH tunneling, use `./scripts/install.sh --ssh user@host --local-access` and reconnect with `./scripts/access.sh --ssh user@host`; the browser then runs on the SSH workstation.
 
-## Local K3s or another Kubernetes cluster
-
-On the K3s host, use `sudo ./scripts/install.sh --local-k3s --hostname YOUR_HOSTNAME`. For another cluster, install kubectl locally and use `./scripts/install.sh --context YOUR_CONTEXT --hostname YOUR_HOSTNAME --ingress-class YOUR_CLASS`. Add `--kubeconfig /path/to/config` when needed. Select `--local-access` instead if no Ingress is wanted.
-
-Both local and SSH K3s installation accept `--context NAME --kubeconfig /path/to/config` for a nonstandard server configuration. With `--local-k3s` or `--ssh`, defaults remain context `default` and `/etc/rancher/k3s/k3s.yaml`. In SSH mode the kubeconfig path must be absolute **on the remote host**; its contents are never copied to your workstation. The optional cert-manager setup helper accepts the same target settings. Keep that existing file private and use the same explicit target and recovery directory on reruns.
-
-Run `./scripts/install.sh --ssh user@host --help` for remote SSH options, or `./scripts/install.sh --help` for local K3s and explicit-context options. These help commands do not connect to a cluster. Managed reruns preserve credentials and data and refuse to change an existing installation's settings implicitly. Do not start a second writer on the same claim.
+The access helper reconnects an installation originally configured for local access. It does not silently change an Ingress installation's origins or cookie policy. `--hostname` and `--local-access` are mutually exclusive; switching an existing installation requires an explicit access reconfiguration or Helm upgrade. Use the same target, namespace, release, state-directory and port options when reconnecting. `--port` selects another local port if needed.
 
 ## Network and storage customization
 
-Use an existing SSH host alias for a nondefault SSH port or bastion; the installer and file transfer honor OpenSSH's `Port`, `ProxyJump` and `IdentityFile` settings. See [OpenSSH configuration](https://man.openbsd.org/ssh_config). Private local access always binds loopback; `--port NUMBER` changes its browser/forwarding port without exposing it on your LAN. This is separate from `--ingress-port`.
+Private local access always binds loopback; `--port NUMBER` changes its browser/forwarding port without exposing it on your LAN. This is separate from `--ingress-port`. For optional SSH installation through a nondefault port or bastion, use a host alias; the installer and file transfer honor OpenSSH's `Port`, `ProxyJump` and `IdentityFile` settings. See [OpenSSH configuration](https://man.openbsd.org/ssh_config).
 
 Use `--state-dir /path/to/private-state` to select recovery storage outside the checkout; it must belong to the installing user with mode `0700` and contain no symlink components. In SSH mode it names a remote directory. Temporary staging honors `TMPDIR` in each host's installation process. `--storage-class NAME` selects cluster-managed persistent storage; host filesystem locations are configured through your storage provisioner, not embedded in this repository. `/data` and `/tmp` are intentional paths inside the container. For existing claims or advanced scheduling, use the Helm values reference.
 
@@ -85,5 +98,7 @@ helm install wealthfolio ./charts/wealthfolio \
 The master key must decode from base64 to 32 bytes. The password hash must be a literal Argon2id PHC string with single `$` characters. Keep these values out of Helm values and command arguments. The interactive installer generates them when you do not already have a secret-management workflow.
 
 Use the [values reference](../charts/wealthfolio/README.md) and [examples](../examples/) for Ingress values, storage, fresh database encryption, MCP, and image overrides. Direct Helm installation creates a private ClusterIP Service by default; choose Ingress values or an intentional port-forward workflow. The chart uses one replica and Recreate updates, so updates cause downtime, and retains the complete data claim on uninstall. Changing the database-encryption flag does not convert existing databases.
+
+Run `./scripts/install.sh --help` for local options, or `./scripts/install.sh --ssh user@host --help` for SSH options. Help does not contact a cluster.
 
 Confirm login and persistent record readback before storing valuable data. See [backup and restore](backup-restore.md), [security](security.md), and [troubleshooting](troubleshooting.md).

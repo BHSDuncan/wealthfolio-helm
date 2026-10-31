@@ -1,4 +1,5 @@
 # Replace the reserved example hostname and existing TLS Secret for your private route.
+# Replace className with your existing ingress class; this is an explicit example choice.
 auth:
   existingSecret: wealthfolio-auth
   cookieSecure: "true"

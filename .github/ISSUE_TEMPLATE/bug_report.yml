@@ -9,7 +9,7 @@ body:
     id: versions
     attributes:
       label: Versions and environment
-      description: Chart/app/image digest, Helm, Kubernetes/K3s version, architecture, storage driver and ingress class (redacted)
+      description: Chart/app/image digest, Helm, Kubernetes version and distribution, architecture, storage driver and ingress class (redacted)
     validations:
       required: true
   - type: textarea
