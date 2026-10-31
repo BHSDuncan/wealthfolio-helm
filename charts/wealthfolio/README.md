@@ -2,28 +2,42 @@
 
 Unofficial community Helm chart for [Wealthfolio](https://wealthfolio.app/), maintained independently of the application. Chart **0.1.0** targets Wealthfolio **3.11.0**, Kubernetes **1.34+**, and Linux AMD64/ARM64. Helm 3 and 4 are supported. The official application image is pinned by digest.
 
-## Install and access
+## Install with Helm
 
-This README also ships inside the chart archive. For the guided Kubernetes installer, download or clone the complete project repository and follow its root README. The installer runs locally by default using the current context from a readable kubeconfig shared by kubectl and Helm. It creates credentials interactively. Explicit target overrides and optional SSH execution are also supported. Installer scripts and extended operator guides are intentionally outside this chart package. No public chart registry is configured yet.
+Standard Helm installation is the primary supported workflow. You need Helm 3 or 4, kubectl with a trusted kubeconfig for an existing Kubernetes 1.34+ cluster, permission to create the release resources, and durable filesystem storage writable by UID/GID 1000. Nodes must be able to pull the official image from GHCR. The chart does not install host packages, Python environments, SSH tooling, a cluster or shared controllers. No ingress controller or cert-manager is needed for loopback access.
 
-For direct Helm use, first create a namespace and use your secret-management workflow to create a namespace-local `wealthfolio-auth` Secret with these entries:
+Versioned releases use `oci://ghcr.io/bhsduncan/charts/wealthfolio` with an explicit chart version; public downloads require no account or registry login. The OCI examples below apply when the selected version has been published. From a source checkout, `./charts/wealthfolio` is also a supported chart path; a verified local chart archive works too. See the [release guide](https://github.com/BHSDuncan/wealthfolio-helm/blob/main/docs/releases.md) for versioning and distribution details.
+
+Follow the complete [credential preparation procedure](https://github.com/BHSDuncan/wealthfolio-helm/blob/main/docs/install.md#prepare-credentials) or your secret manager to create namespace `wealthfolio` and a namespace-local `wealthfolio-auth` Secret first:
 
 | Secret entry | Required content |
 |---|---|
 | `WF_SECRET_KEY` | A stable master key: base64 text that decodes to exactly 32 random bytes. Back up the original independently. |
 | `WF_AUTH_PASSWORD_HASH` | An Argon2id PHC password hash with literal single `$` characters. |
 
-Never put a password, hash or master key in Helm values or shell arguments. The chart only references the Secret; it does not generate, read or rotate credentials. The upstream key format is distinct from the additional base64 encoding of Kubernetes Secret `data` entries; a secret manager or `stringData` accepts the application value directly.
+Never put a password, hash or master key in Helm values or shell arguments. The chart only references the Secret; it does not generate, read or rotate credentials. The upstream key format is distinct from the additional base64 encoding of Kubernetes Secret `data` entries; `kubectl --from-file`, a secret manager or `stringData` handles that layer. The linked procedure uses a private Python environment, interactive password input and file-based Secret creation without running the guided installer.
 
-Install a downloaded chart archive with your verified context and namespace:
+Save `values.yaml` with the minimum nonsecret configuration:
 
-```bash
-helm install wealthfolio ./wealthfolio-0.1.0.tgz \
-  --kube-context your-context --namespace wealthfolio \
-  --set auth.existingSecret=wealthfolio-auth --wait --timeout 10m
+```yaml
+auth:
+  existingSecret: wealthfolio-auth
 ```
 
-From the complete source checkout, use `./charts/wealthfolio` in place of the archive path. Only `auth.existingSecret` is required in chart values. Durable default storage must be available and writable by UID/GID 1000; customize `persistence.storageClass` when necessary.
+Only `auth.existingSecret` is required in chart values. Durable default storage must be available; customize `persistence.storageClass` when necessary. Shell environment variables do **not** automatically become Helm values or create Secrets. Helm uses defaults and the values files/explicit overrides passed to it; never supply credential contents as overrides.
+
+For a published chart release, pin the chart version and use your verified context. These commands target this archive's chart version, `0.1.0`. The offline preview explicitly selects the Kubernetes 1.34 support floor; installation validates the actual cluster version:
+
+```bash
+helm template wealthfolio oci://ghcr.io/bhsduncan/charts/wealthfolio \
+  --version 0.1.0 --namespace wealthfolio \
+  --kube-version 1.34.0 --values values.yaml
+helm install wealthfolio oci://ghcr.io/bhsduncan/charts/wealthfolio \
+  --version 0.1.0 --kube-context your-context --namespace wealthfolio \
+  --values values.yaml --wait --timeout 10m
+```
+
+For local installation, replace the OCI reference with `./charts/wealthfolio` from the repository root, or with your verified archive path, and omit `--version`. Local source can also be checked with `helm lint ./charts/wealthfolio --strict --values values.yaml`.
 
 The default Service is private ClusterIP. For local access, keep this command running and open **http://localhost:8088**:
 
@@ -52,11 +66,15 @@ app:
     - https://wealthfolio.example.com
 ```
 
-Pass `--values access.yaml` to Helm. Ingress must preserve the hostname and trusted forwarded protocol. The chart creates a root `/` route; DNS, certificates, controller installation and subpath rewrites are outside its scope. The guided installer in the full repository can provision a private CA or use an existing cert-manager issuer.
+Pass `--values access.yaml` to Helm. Ingress must preserve the hostname and trusted forwarded protocol. The chart creates a root `/` route; DNS, certificates, controller installation and subpath rewrites are outside its scope. Cert-manager is optional and must be installed separately. The chart never installs controllers, issuers or Certificate resources; an existing TLS Secret is sufficient. See the full [installation guide](https://github.com/BHSDuncan/wealthfolio-helm/blob/main/docs/install.md#optional-ingress-and-tls) for access choices.
 
 The chart does not select a node address or install a network controller. Set `service.port` independently of the fixed application port 8088; an explicit `service.nodePort` must fit your cluster's configured range, which may differ from Kubernetes' default 30000–32767. Configure `app.corsAllowOrigins` with the exact browser scheme, host and external port when using a nonstandard ingress/LB port. Ingress hosts are DNS names; use a Service and an exact IP origin for direct IP access instead. Subpath hosting is unsupported by the packaged application.
 
 For IPv6 Pod networking, set `app.listenAddress: "::"`; the application then binds `[::]:8088`. The default remains the IPv4 wildcard `0.0.0.0`. Verify your CNI/controller and node dual-stack behavior before relying on both families. IPv6 literals in browser origins and MCP allowlists use brackets, for example `https://[2001:db8::1]:8443` and `[2001:db8::1]:8443`. The latter is a documentation address, not a usable deployment target. Local port-forwarding remains loopback-only.
+
+## Optional guided installer
+
+The full repository also includes an interactive convenience installer for homelab users and first-time Kubernetes operators. It is optional and is not part of this chart archive. It prepares credentials and missing Helm/Python dependencies outside Helm, saves private recovery state, and supports explicit access reconfiguration, certificate renewal and optional SSH. Read its [prerequisites, host changes, saved files and management workflow](https://github.com/BHSDuncan/wealthfolio-helm/blob/main/docs/install.md#optional-guided-installer) before use. Use installer commands for its supported access changes, renewal, reconnect and retry operations while it manages an installation; ordinary reruns preserve settings and do not upgrade the application.
 
 ## Storage, security and lifecycle
 

@@ -47,7 +47,10 @@ class PublicationRetryTests(unittest.TestCase):
                 import os,pathlib,shutil,sys
                 args=sys.argv[1:]
                 with open('helm-calls', 'a') as output: output.write(' '.join(args[:2])+'\\n')
-                if args[0]=='push': shutil.copyfile(args[1], 'remote.tgz')
+                if args[:2]==['registry','login']:
+                    assert args == ['registry','login','ghcr.io','--username',os.environ['GITHUB_ACTOR'],'--password-stdin']
+                    assert sys.stdin.read() == os.environ['GHCR_TOKEN']
+                elif args[0]=='push': shutil.copyfile(args[1], 'remote.tgz')
                 elif args[0]=='pull':
                     destination=pathlib.Path(args[args.index('--destination')+1])
                     shutil.copyfile('remote.tgz', destination/'wealthfolio-0.1.0.tgz')
@@ -59,9 +62,10 @@ class PublicationRetryTests(unittest.TestCase):
             runner = target / 'runner'
             runner.mkdir()
             environment = dict(os.environ, RUNNER_TEMP=str(runner), OWNER='Example', VERSION='0.1.0',
-                               GH_TOKEN='synthetic-test-only', GHCR_USER='synthetic', TEST_PUBLIC=str(public).lower())
+                               GHCR_TOKEN='synthetic-test-only', GITHUB_ACTOR='synthetic', TEST_PUBLIC=str(public).lower())
             result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', script], cwd=target,
                                     env=environment, capture_output=True, text=True)
+            self.assertNotIn('synthetic-test-only', result.stdout + result.stderr)
             calls = (target / 'helm-calls').read_text().splitlines()
             return result, calls
 

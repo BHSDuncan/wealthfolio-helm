@@ -15,7 +15,7 @@ kubectl --context "$WF_CONTEXT" -n "$WF_NAMESPACE" describe pod "$WF_POD"
 | Application config failure | Master key decodes to exactly 32 bytes; valid literal Argon2id PHC hash; no doubled dollars; inspect private logs for category only |
 | Hostname does not reach the app | DNS points to the ingress controller's address, the selected ingress class exists, and the network permits the controller's ports |
 | TLS warning | Existing TLS Secret is in the release namespace; its certificate covers the hostname and is trusted by the browser |
-| Local access is refused | Use the configured Ingress URL, or reconnect a release originally created with `--local-access`; the helper does not rewrite origins or Secure-cookie settings |
+| Local access is refused | For Helm installs, use the documented kubectl port-forward with the configured exact origin. The optional installer access helper reconnects only releases created with `--local-access`; it does not rewrite origins or Secure-cookie settings |
 | Login fails or cookie loop | Password, five-attempt/minute/IP rate limit, exact scheme/host/port CORS, forwarded protocol and cookie Secure value |
 | Empty/slow startup | Migrations and backup space; startup probe window; readiness is shallow, not recovery proof |
 | PVC Pending | StorageClass/default provisioner, requested capacity/access mode, scheduler/node constraints; do not change a bound class |

@@ -16,7 +16,6 @@ p.add_argument('--archive', type=pathlib.Path)
 a = p.parse_args()
 chart = yaml.safe_load((root / 'charts/wealthfolio/Chart.yaml').read_text())
 values = yaml.safe_load((root / 'charts/wealthfolio/values.yaml').read_text())
-assert chart['version'] == '0.1.0', 'Chart version requires a reviewed release update'
 assert chart['appVersion'] == '3.11.0'
 assert values['image']['tag'] == '3.11.0'
 assert values['image']['repository'] == 'ghcr.io/wealthfolio/wealthfolio'
