@@ -2,13 +2,13 @@
 
 Unofficial community Helm chart for [Wealthfolio](https://wealthfolio.app/). Deploys one non-root instance with persistent storage, password authentication, and optional HTTPS Ingress and MCP access. Kubernetes **1.34+**; chart **0.1.0**, application **3.11.0**.
 
-Standard Helm installation is the primary workflow. Chart 0.1.0 is unreleased; OCI publication is pending, so use the local chart below. The intended GHCR distribution and publication prerequisites are in the [release guide](docs/releases.md). Before public exposure, review the pinned image’s [recorded security limitations](docs/security.md#upstream-image).
+Standard Helm installation is the primary workflow. Chart **0.1.0** is available from **`oci://ghcr.io/bhsduncan/charts/wealthfolio`**; public downloads require no registry login. Versioning and publication details are in the [release guide](docs/releases.md). Before public exposure, review the pinned image’s [recorded security limitations](docs/security.md#upstream-image).
 
 ## Quick start with Helm
 
 You need Helm 3 or 4, kubectl, and a trusted kubeconfig for an existing Kubernetes **1.34+** cluster. The cluster needs durable filesystem storage writable by UID/GID 1000, a default StorageClass (or an explicit `persistence.storageClass`), permissions to create the release resources, and node access to the official application image on GHCR. No ingress controller, TLS certificate, Python, SSH or cert-manager is required by the chart.
 
-Clone the source and select your verified context:
+Clone the repository for the standalone credential procedure and optional tooling, then select your verified context. Helm downloads the version-pinned chart from GHCR:
 
 ```bash
 git clone https://github.com/BHSDuncan/wealthfolio-helm.git
@@ -35,14 +35,14 @@ auth:
 
 Only `auth.existingSecret` is required in values. Shell environment variables do **not** automatically become Helm values: exporting `WF_SECRET_KEY`, for example, neither creates a Secret nor configures the chart. Helm uses its defaults and the values files/explicit overrides you pass. Do not use credential overrides.
 
-Lint, review the rendered resources, and install. The offline preview uses the Kubernetes 1.34 support floor; the installation checks your actual cluster version:
+Review the rendered resources and install the published chart. The preview downloads the chart and renders locally using the Kubernetes 1.34 support floor; installation checks your actual cluster version:
 
 ```bash
-helm lint ./charts/wealthfolio --strict --values values.yaml
-helm template wealthfolio ./charts/wealthfolio \
-  --namespace wealthfolio --kube-version 1.34.0 --values values.yaml
-helm install wealthfolio ./charts/wealthfolio \
-  --kube-context "$WF_CONTEXT" --namespace wealthfolio \
+helm template wealthfolio oci://ghcr.io/bhsduncan/charts/wealthfolio \
+  --version 0.1.0 --namespace wealthfolio \
+  --kube-version 1.34.0 --values values.yaml
+helm install wealthfolio oci://ghcr.io/bhsduncan/charts/wealthfolio \
+  --version 0.1.0 --kube-context "$WF_CONTEXT" --namespace wealthfolio \
   --values values.yaml --wait --timeout 10m
 kubectl --context "$WF_CONTEXT" --namespace wealthfolio \
   port-forward service/wealthfolio 8088:8088 --address 127.0.0.1
