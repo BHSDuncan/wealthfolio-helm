@@ -11,7 +11,7 @@ Use standard Helm for a new installation. The chart consumes an existing authent
 
 Ingress, TLS and cert-manager are optional. Python is needed only for the credential-generation example below or the guided installer, not for Helm. OS packages, Python environments, SSH, Kubernetes provisioning, DNS and shared controllers are outside the chart.
 
-Chart 0.1.0 is unreleased and OCI publication is pending. Clone the repository for the working local-chart path:
+Chart **0.1.0** is publicly available from **`oci://ghcr.io/bhsduncan/charts/wealthfolio`**, without registry authentication. Clone the repository for the standalone credential procedure, examples and optional tooling; Helm downloads the version-pinned chart separately:
 
 ```bash
 git clone https://github.com/BHSDuncan/wealthfolio-helm.git
@@ -20,7 +20,7 @@ kubectl config get-contexts
 export WF_CONTEXT=your-context
 ```
 
-Replace `your-context` with the verified context. These examples use namespace/release `wealthfolio`; keep the context and namespace consistent across kubectl and Helm. Set `KUBECONFIG` first if using a nondefault kubeconfig. See the [release guide](releases.md) for intended versioned GHCR distribution.
+Replace `your-context` with the verified context. These examples use namespace/release `wealthfolio`; keep the context and namespace consistent across kubectl and Helm. Set `KUBECONFIG` first if using a nondefault kubeconfig. See the [release guide](releases.md) for versioned GHCR distribution.
 
 ## Prepare credentials
 
@@ -94,20 +94,22 @@ auth:
 
 Shell environment variables do **not** automatically become Helm values. `WF_CONTEXT` above is substituted by your shell into an explicit command option; `WF_CREDENTIAL_DIR` selects local credential files. Exporting application variables such as `WF_SECRET_KEY` does not configure Helm or create the required Secret. Helm reads defaults and the values files/explicit overrides you supply. Never pass credential contents through Helm overrides.
 
-The offline preview below selects Kubernetes 1.34 explicitly so it does not depend on Helm's built-in simulated version. You can preview your actual supported cluster version instead; installation validates the real cluster.
+The preview below downloads the chart and renders locally without contacting your cluster. It selects Kubernetes 1.34 explicitly so it does not depend on Helm's built-in simulated version. You can preview your actual supported cluster version instead; installation validates the real cluster.
 
 ```bash
-helm lint ./charts/wealthfolio --strict --values values.yaml
-helm template wealthfolio ./charts/wealthfolio \
-  --namespace wealthfolio --kube-version 1.34.0 --values values.yaml
-helm install wealthfolio ./charts/wealthfolio \
-  --kube-context "$WF_CONTEXT" --namespace wealthfolio \
+helm template wealthfolio oci://ghcr.io/bhsduncan/charts/wealthfolio \
+  --version 0.1.0 --namespace wealthfolio \
+  --kube-version 1.34.0 --values values.yaml
+helm install wealthfolio oci://ghcr.io/bhsduncan/charts/wealthfolio \
+  --version 0.1.0 --kube-context "$WF_CONTEXT" --namespace wealthfolio \
   --values values.yaml --wait --timeout 10m
 kubectl --context "$WF_CONTEXT" --namespace wealthfolio \
   port-forward service/wealthfolio 8088:8088 --address 127.0.0.1
 ```
 
 Open **http://localhost:8088** while forwarding runs. Ctrl-C closes forwarding and leaves the application installed; rerun the kubectl command to reconnect. The default CORS origins cover `http://localhost:8088` and `http://127.0.0.1:8088`. If you change the local port, update `app.corsAllowOrigins` with the exact browser origin through your values file and `helm upgrade`.
+
+A local source installation remains supported: replace the OCI reference with `./charts/wealthfolio` from the repository root and omit `--version`. Check local chart configuration with `helm lint ./charts/wealthfolio --strict --values values.yaml`. A verified local chart archive also works in place of the OCI reference.
 
 Confirm login and persistent record readback before storing valuable data. One replica and Recreate updates preserve the single-writer deployment model, with downtime during upgrades. Stop every writer before maintenance or recovery. See [backup and restore](backup-restore.md), [upgrades](upgrading.md), [security](security.md), and [compatibility](compatibility.md).
 
