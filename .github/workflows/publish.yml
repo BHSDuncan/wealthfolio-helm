@@ -31,6 +31,15 @@ jobs:
     outputs:
       source: ${{ steps.source.outputs.sha }}
     steps:
+      - name: Require repository owner
+        env:
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        run: |
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          [[ "${ACTOR,,}" == "${REPOSITORY_OWNER,,}" ]]
+          [[ "${TRIGGERING_ACTOR,,}" == "${REPOSITORY_OWNER,,}" ]]
       - name: Require owner-configured enable switch and exact source
         id: source
         env:
@@ -46,7 +55,7 @@ jobs:
           persist-credentials: false
       - name: Verify successful CI for the exact source and chart version
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
           CHART_VERSION: ${{ inputs.chart_version }}
         run: |
@@ -83,6 +92,15 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Require repository owner
+        env:
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        run: |
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          [[ "${ACTOR,,}" == "${REPOSITORY_OWNER,,}" ]]
+          [[ "${TRIGGERING_ACTOR,,}" == "${REPOSITORY_OWNER,,}" ]]
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ needs.gate.outputs.source }}
@@ -95,8 +113,7 @@ jobs:
           path: dist
       - name: Publish or verify an exact retry, then check anonymous pullback
         env:
-          GH_TOKEN: ${{ github.token }}
-          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OWNER: ${{ github.repository_owner }}
           VERSION: ${{ inputs.chart_version }}
         run: |
@@ -107,7 +124,7 @@ jobs:
           python3 - <<'PY'
           import base64,json,os,pathlib,urllib.request,urllib.error
           owner=os.environ['OWNER']; name=f'{owner}/charts/wealthfolio'
-          auth=base64.b64encode(f"{os.environ['GHCR_USER']}:{os.environ['GH_TOKEN']}".encode()).decode()
+          auth=base64.b64encode(f"{os.environ['GITHUB_ACTOR']}:{os.environ['GHCR_TOKEN']}".encode()).decode()
           request=urllib.request.Request(f'https://ghcr.io/token?service=ghcr.io&scope=repository:{name}:pull',headers={'Authorization':f'Basic {auth}'})
           token=json.load(urllib.request.urlopen(request))['token']
           request=urllib.request.Request(f"https://ghcr.io/v2/{name}/manifests/{os.environ['VERSION']}",method='HEAD',headers={'Authorization':f'Bearer {token}','Accept':'application/vnd.oci.image.manifest.v1+json'})
@@ -117,7 +134,7 @@ jobs:
               if error.code!=404: raise
           else: pathlib.Path(os.environ['RUNNER_TEMP'], 'existing-oci-version').touch()
           PY
-          printf '%s' "$GH_TOKEN" | helm registry login ghcr.io --username "$GHCR_USER" --password-stdin
+          printf '%s' "$GHCR_TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           trap 'helm registry logout ghcr.io >/dev/null 2>&1 || true' EXIT
           python3 .github/scripts/verify_checksum.py "dist/wealthfolio-$VERSION.tgz" "dist/wealthfolio-$VERSION.tgz.sha256"
           if [[ ! -f "$RUNNER_TEMP/existing-oci-version" ]]; then
@@ -140,6 +157,15 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Require repository owner
+        env:
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        run: |
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          [[ "${ACTOR,,}" == "${REPOSITORY_OWNER,,}" ]]
+          [[ "${TRIGGERING_ACTOR,,}" == "${REPOSITORY_OWNER,,}" ]]
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ needs.gate.outputs.source }}
@@ -152,7 +178,7 @@ jobs:
           path: dist
       - name: Create separately requested immutable release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ inputs.chart_version }}
           SOURCE_SHA: ${{ needs.gate.outputs.source }}
         run: |

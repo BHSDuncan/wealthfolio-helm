@@ -1,6 +1,151 @@
 # Installation
 
-## Install locally
+Use standard Helm for a new installation. The chart consumes an existing authentication Secret and nonsecret values; it does not prepare hosts, create credentials or provision a cluster. The [optional guided installer](#optional-guided-installer) offers interactive setup for homelabs and first-time Kubernetes operators.
+
+## Helm prerequisites
+
+- Helm 3 or 4 and kubectl, with a readable trusted kubeconfig for an existing Kubernetes 1.34+ cluster. Verify the selected context before any write.
+- Permission to create a namespace (or an existing namespace), Secret, Deployment, Service and PVC, plus Ingress only if enabled.
+- Durable filesystem storage writable by UID/GID 1000. A default StorageClass serves the default 5Gi claim; otherwise choose `persistence.storageClass` or a prepared `persistence.existingClaim`.
+- Linux AMD64/ARM64 cluster nodes able to pull the pinned official image from GHCR. A container build tool is unnecessary.
+
+Ingress, TLS and cert-manager are optional. Python is needed only for the credential-generation example below or the guided installer, not for Helm. OS packages, Python environments, SSH, Kubernetes provisioning, DNS and shared controllers are outside the chart.
+
+Chart 0.1.0 is unreleased and OCI publication is pending. Clone the repository for the working local-chart path:
+
+```bash
+git clone https://github.com/BHSDuncan/wealthfolio-helm.git
+cd wealthfolio-helm
+kubectl config get-contexts
+export WF_CONTEXT=your-context
+```
+
+Replace `your-context` with the verified context. These examples use namespace/release `wealthfolio`; keep the context and namespace consistent across kubectl and Helm. Set `KUBECONFIG` first if using a nondefault kubeconfig. See the [release guide](releases.md) for intended versioned GHCR distribution.
+
+## Prepare credentials
+
+The chart requires a namespace-local Secret named by `auth.existingSecret`. Its default entry names are:
+
+| Secret key | Required application value |
+|---|---|
+| `WF_SECRET_KEY` | Base64 text that decodes to exactly 32 random bytes. Generate once and retain the original independently of Kubernetes. |
+| `WF_AUTH_PASSWORD_HASH` | Argon2id PHC password hash with literal single `$` characters. |
+
+An existing secret manager may supply this contract directly. Do not place passwords, hashes, master keys or PATs in Helm values, command arguments, annotations or source. The chart only renders Secret references, so credentials stay outside Helm release history. Kubernetes Secret `data` adds another base64 layer; `kubectl --from-file` below handles that layer. Base64 is not encryption: protect cluster Secret access and encryption at rest.
+
+For a standalone first-install preparation procedure, use Python 3.10+ with venv support and access to PyPI. Run the following from the source checkout in an interactive terminal. It creates a new private directory outside the repository, installs only checksum-locked hashing dependencies into an isolated environment, and prompts without echoing the password. `mkdir` deliberately fails if the directory already exists; choose a new path for a separate new installation, and preserve existing recovery files.
+
+```bash
+umask 077
+export WF_CREDENTIAL_DIR="$HOME/.local/share/wealthfolio-credentials"
+mkdir -p "$HOME/.local/share"
+mkdir -m 700 "$WF_CREDENTIAL_DIR"
+python3 -m venv "$WF_CREDENTIAL_DIR/venv"
+"$WF_CREDENTIAL_DIR/venv/bin/python" -m pip install --require-hashes \
+  -r scripts/installer-requirements.lock
+"$WF_CREDENTIAL_DIR/venv/bin/python" - <<'PYTHON'
+import base64
+import getpass
+import os
+from pathlib import Path
+import secrets
+from argon2 import PasswordHasher
+
+folder = Path(os.environ["WF_CREDENTIAL_DIR"])
+if any((folder / name).exists() for name in ("master-key", "password-hash")):
+    raise SystemExit("Credential files already exist; preserve the original key.")
+password = getpass.getpass("New Wealthfolio password (at least 12 characters): ")
+confirmation = getpass.getpass("Confirm password: ")
+if len(password) < 12 or password != confirmation:
+    raise SystemExit("Passwords must match and contain at least 12 characters.")
+password_hash = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=1).hash(password)
+del password, confirmation
+master_key = base64.b64encode(secrets.token_bytes(32)).decode("ascii")
+for name, value in (("master-key", master_key), ("password-hash", password_hash)):
+    with (folder / name).open("x") as stream:
+        stream.write(value)
+print("Credential files created privately; back up the original master-key separately.")
+PYTHON
+```
+
+Stop if any command fails. If venv support is missing, install your operating system's Python venv package and retry the environment setup; the chart does not install OS packages. Keep the original `master-key` file in an independent protected backup. This key encrypts the vault even with database encryption disabled; losing or replacing it makes encrypted data unrecoverable. Treat the hash file as sensitive too. The login password itself is not saved.
+
+Create the namespace and Secret using the files, so neither credential is a shell argument and `$` characters remain literal:
+
+```bash
+kubectl --context "$WF_CONTEXT" create namespace wealthfolio
+kubectl --context "$WF_CONTEXT" --namespace wealthfolio create secret generic wealthfolio-auth \
+  --from-file=WF_SECRET_KEY="$WF_CREDENTIAL_DIR/master-key" \
+  --from-file=WF_AUTH_PASSWORD_HASH="$WF_CREDENTIAL_DIR/password-hash"
+```
+
+If your operator already created the namespace, skip its creation command. Secret creation deliberately refuses to overwrite an existing Secret. Confirm the Secret name and key names privately; do not print its data. These commands do not run the guided installer and do not create a Helm release.
+
+## Minimum values and Helm install
+
+Save this nonsecret file as `values.yaml`:
+
+```yaml
+auth:
+  existingSecret: wealthfolio-auth
+```
+
+`auth.existingSecret` is the only required value. The Secret and both keys must already exist in the release namespace; Helm cannot validate their contents. The defaults create a retained 5Gi PVC and a private ClusterIP Service suitable for loopback forwarding.
+
+Shell environment variables do **not** automatically become Helm values. `WF_CONTEXT` above is substituted by your shell into an explicit command option; `WF_CREDENTIAL_DIR` selects local credential files. Exporting application variables such as `WF_SECRET_KEY` does not configure Helm or create the required Secret. Helm reads defaults and the values files/explicit overrides you supply. Never pass credential contents through Helm overrides.
+
+The offline preview below selects Kubernetes 1.34 explicitly so it does not depend on Helm's built-in simulated version. You can preview your actual supported cluster version instead; installation validates the real cluster.
+
+```bash
+helm lint ./charts/wealthfolio --strict --values values.yaml
+helm template wealthfolio ./charts/wealthfolio \
+  --namespace wealthfolio --kube-version 1.34.0 --values values.yaml
+helm install wealthfolio ./charts/wealthfolio \
+  --kube-context "$WF_CONTEXT" --namespace wealthfolio \
+  --values values.yaml --wait --timeout 10m
+kubectl --context "$WF_CONTEXT" --namespace wealthfolio \
+  port-forward service/wealthfolio 8088:8088 --address 127.0.0.1
+```
+
+Open **http://localhost:8088** while forwarding runs. Ctrl-C closes forwarding and leaves the application installed; rerun the kubectl command to reconnect. The default CORS origins cover `http://localhost:8088` and `http://127.0.0.1:8088`. If you change the local port, update `app.corsAllowOrigins` with the exact browser origin through your values file and `helm upgrade`.
+
+Confirm login and persistent record readback before storing valuable data. One replica and Recreate updates preserve the single-writer deployment model, with downtime during upgrades. Stop every writer before maintenance or recovery. See [backup and restore](backup-restore.md), [upgrades](upgrading.md), [security](security.md), and [compatibility](compatibility.md).
+
+## Optional ingress and TLS
+
+No hostname, Ingress or TLS is required for loopback access. For a hostname, arrange an existing ingress controller and DNS, then copy and edit the [HTTPS Ingress example](../examples/ingress-tls.yaml). It contains:
+
+```yaml
+auth:
+  existingSecret: wealthfolio-auth
+  cookieSecure: "true"
+app:
+  corsAllowOrigins:
+    - https://wealthfolio.example.test
+ingress:
+  enabled: true
+  className: traefik
+  hosts:
+    - wealthfolio.example.test
+  tls:
+    - secretName: wealthfolio-tls
+      hosts:
+        - wealthfolio.example.test
+```
+
+Replace the hostname and class with your actual DNS name and existing IngressClass. Prepare `wealthfolio-tls` as a namespace-local `kubernetes.io/tls` Secret through your certificate workflow; it must cover that hostname and be trusted by browsers. Save the edited file as `access.yaml`, then pass `--values values.yaml --values access.yaml` to `helm install` (or `helm upgrade` for later configuration). A controller-managed default certificate can instead use the [controller TLS example](../examples/ingress-controller-tls.yaml).
+
+Use the exact browser scheme, host and external port in `app.corsAllowOrigins`, and `auth.cookieSecure: "true"` for HTTPS. For an intentional HTTP ingress, omit `ingress.tls`, use the exact `http://` origin and `auth.cookieSecure: "false"`; use TLS on networks you do not fully trust. Preserve Host and trusted forwarded protocol at the proxy. Root `/` routing is required; subpath hosting is unsupported.
+
+**Cert-manager is optional and separate.** The chart never installs controllers, CRDs, issuers or Certificate resources. An existing certificate workflow is sufficient. If you choose cert-manager, install/manage its operator independently, configure an issuer, and request a certificate into the Secret referenced above. The repository's separately invoked bootstrap helper and guided certificate modes are described in [HTTPS setup](https.md); no normal application install installs cert-manager.
+
+Storage selection, fresh database encryption, MCP, IPv6, Service exposure and scheduling are optional values documented in the [chart reference](../charts/wealthfolio/README.md) and [examples](../examples/). Set `encryption.required: true` before creating databases if desired; the default is false, and changing the flag does not convert existing files. Keep the same original master key in either case.
+
+## Optional guided installer
+
+The guided installer is a convenience for homelab users and first-time Kubernetes operators. Standard Helm installation above is the primary supported workflow. The installer runs outside the chart; host package setup, Python environments, SSH orchestration and certificate bootstrapping are never Helm hooks.
+
+### Prerequisites and first installation
 
 Use a macOS or Linux machine with Python 3.10+, kubectl and a trusted kubeconfig for a Kubernetes 1.34+ cluster. The cluster needs durable default storage, permission to create the application resources, and access to GHCR. AMD64 and ARM64 hosts have checksum-locked Helm downloads when Helm is absent. The installation host also needs HTTPS access to `get.helm.sh` for that download and to PyPI for the password-hashing dependencies. The installer uses the official image; Docker and local image builds are not needed.
 
@@ -22,7 +167,7 @@ When ready, open the printed hostname URL. Installation exits normally and you c
 
 The chart uses standard Kubernetes resources and cluster-managed storage. Verify support for its UID/GID 1000 pod and filesystem PVC; see [compatibility](compatibility.md) for requirements and tested coverage.
 
-## Optional: installation over SSH
+### Optional installation over SSH
 
 Use a macOS or Linux workstation with Python 3.10+ and OpenSSH. The remote Linux host needs Python 3.10+, kubectl, a readable kubeconfig and the same cluster/network prerequisites as a local installation:
 
@@ -32,7 +177,7 @@ Use a macOS or Linux workstation with Python 3.10+ and OpenSSH. The remote Linux
 
 Replace the SSH target and browser hostname. Add `--identity ~/.ssh/my-key` if needed. Commands use the SSH account’s kubeconfig/current context by default. Optional `--sudo` explicitly runs as root and uses root’s kubeconfig unless `--kubeconfig` selects another file. `--context` selects a context within the effective kubeconfig. A remote kubeconfig path must be absolute on that host; its contents are never copied to your workstation. Recovery files remain owned by the SSH account on the remote host. Hostname-based browser access continues after the installer disconnects.
 
-## Installation options
+### Installation options
 
 | Option | Setting |
 |---|---|
@@ -55,7 +200,7 @@ For unattended operation, provide the scheme, certificate mode and its required 
 
 An installed release keeps its saved scheme on ordinary reruns. Run `./scripts/install.sh --configure-access` using the same kubeconfig/current context to choose HTTPS and its certificate path. If the original installation used explicit target options or SSH, keep those options and add `--configure-access`. The saved hostname is reused when omitted; review and confirm the proposed URL change. This explicit network-only update preserves credentials, image, storage and encryption settings; see [upgrades](upgrading.md).
 
-## Optional private localhost access
+### Optional private localhost access
 
 If Ingress is unavailable, choose private loopback access instead of a hostname:
 
@@ -71,9 +216,9 @@ Open **http://localhost:8088** in a browser on the machine running this command 
 
 Keep the same target options when reconnecting. For optional SSH tunneling, use `./scripts/install.sh --ssh user@host --local-access` and reconnect with `./scripts/access.sh --ssh user@host`; the browser then runs on the SSH workstation.
 
-The access helper reconnects an installation originally configured for local access. It does not silently change an Ingress installation's origins or cookie policy. `--hostname` and `--local-access` are mutually exclusive; switching an existing installation requires an explicit access reconfiguration or Helm upgrade. Use the same target, namespace, release, state-directory and port options when reconnecting. `--port` selects another local port if needed.
+The access helper reconnects an installation originally configured for local access. It does not silently change an Ingress installation's origins or cookie policy. `--hostname` and `--local-access` are mutually exclusive; switching access settings requires explicit installer access reconfiguration. Use the same target, namespace, release, state-directory and port options when reconnecting. `--port` selects another local port if needed.
 
-## Network and storage customization
+### Network and storage customization
 
 Private local access always binds loopback; `--port NUMBER` changes its browser/forwarding port without exposing it on your LAN. This is separate from `--ingress-port`. For optional SSH installation through a nondefault port or bastion, use a host alias; the installer and file transfer honor OpenSSH's `Port`, `ProxyJump` and `IdentityFile` settings. See [OpenSSH configuration](https://man.openbsd.org/ssh_config).
 
@@ -85,20 +230,19 @@ For a reviewed registry mirror, both SSH and local installers accept `--image-re
 
 For proxy-based networks, configure the selected kubeconfig's [cluster proxy settings](https://kubernetes.io/docs/reference/config-api/kubeconfig.v1/#Cluster) and the installation host's proxy/trust settings. Python downloads honor standard [proxy environment variables](https://docs.python.org/3/library/urllib.request.html#urllib.request.ProxyHandler); sudo may filter them, and SSH does not copy your workstation's proxy credentials. Configure image pulls on the cluster nodes separately. A disconnected installation needs preinstalled tooling, available hashing dependencies or an existing authentication Secret, and locally reachable reviewed images; the installer does not provision an offline mirror.
 
-## Helm-only installation
 
-If you already manage Secrets, create a namespace-local `wealthfolio-auth` Secret containing `WF_SECRET_KEY` and `WF_AUTH_PASSWORD_HASH`, then install directly:
+### Host changes and saved files
 
-```bash
-helm install wealthfolio ./charts/wealthfolio \
-  --kube-context my-cluster --namespace wealthfolio \
-  --set auth.existingSecret=wealthfolio-auth --wait --timeout 10m
-```
+The installer writes recovery state under `~/.local/share/wealthfolio/<target-identity>/<namespace>/<release>` for the installation owner, or the explicit `--state-dir`. Directories are mode `0700`, recovery files mode `0600`; state must stay outside the repository and cannot contain symlink components. Keep the printed directory and an independent private copy of its original master key.
 
-The master key must decode from base64 to 32 bytes. The password hash must be a literal Argon2id PHC string with single `$` characters. Keep these values out of Helm values and command arguments. The interactive installer generates them when you do not already have a secret-management workflow.
+Saved files include `state.json` (target/resource identities and installer status), `values.json` (nonsecret Helm configuration), `master-key` and `password-hash` when generated, and an install lock. Access changes retain before/proposed JSON files for safe retry. Optional `tools/` holds a checksum-locked Helm download, `installer-venv/` holds pinned hashing dependencies, and selected certificate modes add private TLS keys/certificates under `tls/`. An existing authentication Secret is referenced without copying its contents into state. SSH mode saves these files on the remote host, not your workstation; a requested CA export copies only the public certificate.
 
-Use the [values reference](../charts/wealthfolio/README.md) and [examples](../examples/) for Ingress values, storage, fresh database encryption, MCP, and image overrides. Direct Helm installation creates a private ClusterIP Service by default; choose Ingress values or an intentional port-forward workflow. The chart uses one replica and Recreate updates, so updates cause downtime, and retains the complete data claim on uninstall. Changing the database-encryption flag does not convert existing databases.
+When Helm is missing, setup downloads it into private state rather than installing a system package. Password hashing can download locked Python packages into the private environment. Explicit root execution on Debian/Ubuntu may run `apt-get update` and install missing `python3-venv`; no OS upgrade is requested. Other users must prepare missing venv support themselves. Private-CA mode requires OpenSSL and writes owned TLS resources; cert-manager mode creates a namespaced Certificate using your selected issuer. No normal install provisions Kubernetes, changes DNS, installs an ingress controller/cert-manager, or modifies device trust. The separate `setup-cert-manager.sh --install-controller` command is an explicit optional global operation.
+
+### Configuration while using the guided installer
+
+Choose storage class, image overrides, pod listener and database-encryption policy at initial setup. Ordinary reruns use the recorded target and settings and do not upgrade the application. Keep the original context/kubeconfig, SSH account, namespace/release and state-directory options on subsequent commands.
+
+Use `scripts/install.sh --configure-access` for supported URL, scheme, ingress and certificate changes; use its `--renew-certificate` flow for installer-generated private-CA leaf renewal. Reconnect a local-access installation with `scripts/access.sh` and the same target options. Use the installer to retry an interrupted supported setup or access operation so its saved identities and pending state remain consistent. Do not edit `state.json` or `values.json`, change Helm values behind its back, replace its Secret/key/claim, or bypass its ownership/drift checks. The installer refuses unmanaged or unexpectedly changed releases; it does not provide general chart/application upgrades. Those require a separately reviewed maintenance operation following [upgrades](upgrading.md), with backups and the original key.
 
 Run `./scripts/install.sh --help` for local options, or `./scripts/install.sh --ssh user@host --help` for SSH options. Help does not contact a cluster.
-
-Confirm login and persistent record readback before storing valuable data. See [backup and restore](backup-restore.md), [security](security.md), and [troubleshooting](troubleshooting.md).

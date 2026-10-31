@@ -1,6 +1,8 @@
 # HTTPS and certificate setup
 
-The installer asks how HTTPS should obtain its certificate. HTTPS encryption and browser trust are separate: a browser must trust the issuing CA and the certificate must cover your hostname. The examples use your current kubeconfig context by default. Keep the same readable kubeconfig and any target overrides from [installation](install.md); SSH execution is optional.
+For standard Helm installation, follow [optional ingress and TLS](install.md#optional-ingress-and-tls): use an existing ingress controller and reference your namespace-local TLS Secret in values. Cert-manager is optional and remains separately managed; the chart does not create certificate resources.
+
+The remainder of this guide covers the optional guided installer and separately invoked certificate helpers. The installer asks how HTTPS should obtain its certificate. HTTPS encryption and browser trust are separate: a browser must trust the issuing CA and the certificate must cover your hostname. The examples use your current kubeconfig context by default. Keep the same readable kubeconfig and any target overrides from [installation](install.md); SSH execution is optional.
 
 | Choice | Works without an existing application certificate? | Trust and renewal |
 |---|---|---|
