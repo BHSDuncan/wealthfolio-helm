@@ -118,6 +118,14 @@ class InstallerTests(unittest.TestCase):
         self.state = Path(self.temporary.name).resolve() / "recovery"
         self.config = Path(self.temporary.name).resolve() / "client.yaml"
         self.config.write_text("synthetic client configuration")
+        home = Path(self.temporary.name).resolve() / "home"
+        home.mkdir()
+        # Tests must not inherit a developer's cluster configuration. Pure
+        # helpers receive the same synthetic kubeconfig as lifecycle tests.
+        for patcher in (mock.patch.object(installer.Path, "home", return_value=home),
+                        mock.patch.dict(installer.os.environ, {"HOME": str(home), "KUBECONFIG": ""})):
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.cluster = Cluster()
         self.output = io.StringIO()
         self.password = "long synthetic password"
@@ -791,7 +799,7 @@ class InstallerTests(unittest.TestCase):
     def test_public_ca_export_rejects_private_key_material_even_with_matching_hash(self):
         private = Path(self.temporary.name) / "private.pem"
         private.write_text("-----BEGIN PRIVATE KEY-----\nc2VjcmV0\n-----END PRIVATE KEY-----\n")
-        args = installer.parser().parse_args(["--context", "test", "--local-access", "--export-ca", str(Path(self.temporary.name) / "do-not-export")])
+        args = installer.parser().parse_args(["--context", "test", "--kubeconfig", str(self.config), "--local-access", "--export-ca", str(Path(self.temporary.name) / "do-not-export")])
         with mock.patch.object(installer.shutil, "which", return_value="/usr/bin/true"):
             instance = installer.Installer(args)
         with self.assertRaisesRegex(installer.InstallError, "public CA certificate did not match"):
@@ -814,7 +822,7 @@ class InstallerTests(unittest.TestCase):
     def test_generated_certificate_names_are_valid_for_maximum_release_length(self):
         names = []
         for ending in ("b" * 11, "c" * 11):
-            args = installer.parser().parse_args(["--context", "test", "--hostname", "wealthfolio.example.lan", "--release", "a" * 42 + ending, "--tls-mode", "private-ca"])
+            args = installer.parser().parse_args(["--context", "test", "--kubeconfig", str(self.config), "--hostname", "wealthfolio.example.lan", "--release", "a" * 42 + ending, "--tls-mode", "private-ca"])
             with mock.patch.object(installer.shutil, "which", return_value="/usr/bin/true"):
                 instance = installer.Installer(args)
             instance.choose_network()
